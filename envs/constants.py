@@ -158,7 +158,7 @@ CLEANED_TILE_RESULT = [RIVER] # Waste becomes River tile after cleaning
 # Original code had 'blocking_cells=[b"H"]' for CLEAN beam
 # and used default 'P' (agent) for FIRE beam. Let's clarify:
 FIRE_BLOCKING_CELLS = [WALL] # Penalty beam stops at walls
-CLEAN_BLOCKING_CELLS = [WALL, WASTE] # Clean beam stops at walls and waste
+CLEAN_BLOCKING_CELLS = [WALL]  #, WASTE] # Clean beam stops at walls ! not waste
 
 # 用于计算视野的填充 (Padding for view calculation)
 VIEW_PADDING = CLEANUP_VIEW_SIZE
