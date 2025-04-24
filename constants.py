@@ -90,7 +90,8 @@ DEFAULT_COLOURS = {
     b'0': np.array([0, 0, 0], dtype=np.uint8),          # Black background beyond map walls
     b'': np.array([180, 180, 180], dtype=np.uint8),     # Grey board walls
     b'@': np.array([180, 180, 180], dtype=np.uint8),     # Grey board walls
-    b'A': np.array([0, 255, 0], dtype=np.uint8),        # Green apples
+    b'A': np.array([0, 255, 0], dtype=np.uint8),        # Green apples  TODO: red apples
+    #b'B': np.array([255, 0, 0], dtype=np.uint8),        #  TODO：草地怎么没颜色
     b'F': np.array([255, 255, 0], dtype=np.uint8),      # Yellow firing beam (penalty)
     b'P': np.array([159, 67, 255], dtype=np.uint8),     # Generic agent (any player) - Will be overridden by agent ID
     # Default agent colors (can be extended)
@@ -102,6 +103,7 @@ DEFAULT_COLOURS = {
     b'6': np.array([100, 255, 255], dtype=np.uint8),     # Cyan
     b'7': np.array([99, 99, 255], dtype=np.uint8),       # Lavender
     b'8': np.array([250, 204, 255], dtype=np.uint8),     # Pink
+
     # Cleanup specific colors
     b'C': np.array([100, 255, 255], dtype=np.uint8),     # Cyan cleaning beam
     b'S': np.array([113, 75, 24], dtype=np.uint8),  # Stream cell (original seemed mixed, using one color)

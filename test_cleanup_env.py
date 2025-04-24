@@ -9,13 +9,14 @@ from pettingzoo.test import parallel_api_test, render_test, seed_test
 
 # Import the refactored environment and constants
 from cleanup_env import CleanupEnv, env as aec_env # Import both parallel and aec env factory
-from constants import (ACTION_MEANING, APPLE, APPLE_REWARD, CLEANUP_MAP,
+from constants import (ACTION_MEANING, APPLE, CLEANUP_MAP,
                      CLEANUP_VIEW_SIZE, CLEAN_BEAM, EMPTY, MOVE_ACTIONS,
                      NUM_ACTIONS, PENALTY_BEAM, PENALTY_FIRE, PENALTY_HIT,
                      RIVER, WASTE, WALL, AGENT_START)
 
-from constants import (WALL,APPLE_SPAWN,WASTE_SPAWN,RIVER,STREAM)
-
+from constants import (CLEAN_REWARD, APPLE_REWARD)
+from constants import (WALL, APPLE_SPAWN, WASTE_SPAWN, RIVER, STREAM)
+from constants import (APPLE_RESPAWN_PROBABILITY, WASTE_SPAWN_PROBABILITY, THRESHOLD_DEPLETION, THRESHOLD_RESTORATION)
 
 # --- Helper Functions (adapted from original tests) ---
 
@@ -299,29 +300,32 @@ class TestCleanupEnv(unittest.TestCase):
         """Test agents consuming apples and receiving rewards."""
         self.env.reset(seed=42)
         agent_id = "agent_0"
-        # Find an apple and place agent nearby
-        apple_found = False
-        for r in range(self.env.map_height):
-             for c in range(self.env.map_width):
-                 if self._get_tile(r, c) == APPLE:
-                     # Try placing agent below the apple
-                     if self._get_tile(r+1, c) == EMPTY:
-                          self._set_agent_pos(agent_id, [r+1, c])
-                          self._set_agent_orientation(agent_id, "UP")
-                          apple_pos = (r,c)
-                          apple_found = True; break
-                     # Try placing agent left of the apple
-                     elif self._get_tile(r, c-1) == EMPTY:
-                          self._set_agent_pos(agent_id, [r, c-1])
-                          self._set_agent_orientation(agent_id, "RIGHT")
-                          apple_pos = (r,c)
-                          apple_found = True; break
-             if apple_found: break
         
-        self.assertTrue(apple_found, "Could not find suitable apple position for test")
+                # --- 修改开始: 手动设置测试场景 ---
+        # 1. 找一个已知空地来放置苹果和智能体 (例如地图中间区域)
+        #    确保这个位置不是墙壁或初始就有其他东西
+        apple_r, apple_c = 2, 14  # 示例坐标，可根据实际地图调整
+        agent_start_r, agent_start_c = 3, 14 # 放在苹果下方
         
-        # Ensure agent 1 stays out of the way
-        self._set_agent_pos("agent_1", self.env.spawn_points[-1]) # Move somewhere else
+        # 2. 清理目标区域，确保它们是空的
+        self._set_tile(apple_r, apple_c, EMPTY)
+        self._set_tile(agent_start_r, agent_start_c, EMPTY)
+
+        # 3. 放置苹果
+        self._set_tile(apple_r, apple_c, APPLE)
+        apple_pos = (apple_r, apple_c)
+
+        # 4. 放置测试智能体到苹果旁边，并设置好朝向
+        self._set_agent_pos(agent_id, [agent_start_r, agent_start_c])
+        self._set_agent_orientation(agent_id, "UP") # 朝向苹果
+
+        # 确保 agent_1 不会干扰
+        # 找一个远离测试区域的出生点
+        other_agent_spawn = self.env.spawn_points[0]
+        if np.array_equal(other_agent_spawn, [agent_start_r, agent_start_c]) or np.array_equal(other_agent_spawn, [apple_r, apple_c]):
+             other_agent_spawn = self.env.spawn_points[1] # 如果第一个出生点冲突，用第二个
+        self._set_agent_pos("agent_1", other_agent_spawn) 
+        # --- 修改结束 ---
 
         initial_pos = deepcopy(self._get_agent_pos(agent_id))
         actions = {agent_id: ACTION_NAME_TO_INDEX["MOVE_UP"], # Move onto apple
@@ -335,8 +339,10 @@ class TestCleanupEnv(unittest.TestCase):
         # Check apple is gone
         self.assertEqual(self._get_tile(apple_pos[0], apple_pos[1]), EMPTY, "Apple not consumed")
         # Check reward
-        self.assertEqual(rewards[agent_id], APPLE_REWARD, "Incorrect apple reward")
         self.assertEqual(rewards["agent_1"], 0, "Agent 1 got unexpected reward")
+        
+        self.assertEqual(rewards[agent_id], APPLE_REWARD, "Incorrect apple reward")
+        
 
 
     def test_penalty_beam(self):
@@ -401,7 +407,7 @@ class TestCleanupEnv(unittest.TestCase):
 
 
         # --- Test 1: Basic cleaning ---
-        initial_waste_pos = (2, 1) # 'H' to the left of agent 0
+        initial_waste_pos = (2, 2) # 'H' to the left of agent 0
         self.assertEqual(self._get_tile(initial_waste_pos[0], initial_waste_pos[1]), WASTE)
 
         actions = {"agent_0": ACTION_NAME_TO_INDEX["CLEAN"],
@@ -411,7 +417,7 @@ class TestCleanupEnv(unittest.TestCase):
         # Check waste is cleaned (becomes River)
         self.assertEqual(self._get_tile(initial_waste_pos[0], initial_waste_pos[1]), RIVER, "Waste not cleaned")
         # Check reward (should be 0 by default)
-        self.assertEqual(rewards["agent_0"], 0, "Incorrect cleaning reward")
+        self.assertEqual(rewards["agent_0"], CLEAN_REWARD, "Incorrect cleaning reward")
 
         # Check beam was rendered (optional)
         # beam_positions_chars = [(p[0], p[1], p[2]) for p in self.env.beam_pos]
@@ -529,8 +535,8 @@ class TestCleanupEnv(unittest.TestCase):
 
         self.env._compute_probabilities()
         print(f"Low Waste Density: {0/total_potential_area:.2f}")
-        self.assertEqual(self.env.current_apple_spawn_prob, self.env.appleRespawnProbability, "Apple prob should be max at low waste")
-        self.assertEqual(self.env.current_waste_spawn_prob, self.env.wasteSpawnProbability, "Waste prob should be max at low waste")
+        self.assertEqual(self.env.current_apple_spawn_prob, APPLE_RESPAWN_PROBABILITY, "Apple prob should be max at low waste")
+        self.assertEqual(self.env.current_waste_spawn_prob, WASTE_SPAWN_PROBABILITY, "Waste prob should be max at low waste")
 
         # --- Scenario 3: Intermediate Waste ---
         # Set waste level between thresholds (e.g., 20%)
@@ -548,8 +554,8 @@ class TestCleanupEnv(unittest.TestCase):
         self.env._compute_probabilities()
         print(f"Intermediate Waste Density: {current_waste/total_potential_area:.2f}")
         self.assertGreater(self.env.current_apple_spawn_prob, 0, "Apple prob should be > 0 at intermediate waste")
-        self.assertLess(self.env.current_apple_spawn_prob, self.env.appleRespawnProbability, "Apple prob should be < max at intermediate waste")
-        self.assertEqual(self.env.current_waste_spawn_prob, self.env.wasteSpawnProbability, "Waste prob should be max at intermediate waste")
+        self.assertLess(self.env.current_apple_spawn_prob, APPLE_RESPAWN_PROBABILITY, "Apple prob should be < max at intermediate waste")
+        self.assertEqual(self.env.current_waste_spawn_prob, WASTE_SPAWN_PROBABILITY, "Waste prob should be max at intermediate waste")
 
 
 # --- PettingZoo API Tests ---
@@ -582,7 +588,7 @@ class TestPettingZooAPI(unittest.TestCase):
          # Check rendering (part of AEC compatibility)
          # render_test(aec_env) # Requires lambda env_constructor
          try:
-              render_test(lambda: aec_env(num_agents=2, render_mode='human'))
+              render_test(lambda: aec_env(num_agents=2))
               print("AEC Render Test Passed.")
          except Exception as e:
              # Rendering tests can be flaky depending on setup

@@ -93,6 +93,7 @@ class CleanupEnv(ParallelEnv):
         self.river_points = self._find_points(RIVER)
         self.stream_points = self._find_points(STREAM) # Stream tiles 'S'
         self.wall_points = self._find_points(WALL)
+        # TODO - Add CLC infos for llm
 
         # Waste dynamics related points
         self.potential_waste_area = len(self.waste_spawn_points) + len(self.river_points)
@@ -183,26 +184,37 @@ class CleanupEnv(ParallelEnv):
 
         # Get initial observations
         observations = {agent_id: self._get_observation(agent_id) for agent_id in self.agents}
+        infos = {agent_id: {} for agent_id in self.agents} # Create empty info dict
 
         if self.render_mode == "human":
             self.render()
 
-        return observations
+        return observations, infos # Return both observations and infos
 
     def step(self, actions: dict[str, int]) -> tuple[dict, dict, dict, dict, dict]:
         """Advances the environment by one step based on agent actions."""
         self.num_cycles += 1
         self.beam_pos = [] # Clear beams from previous step
 
+        # <--- 新增: 记录步骤开始时的活动智能体 --->
+        # 目的是确保后续的奖励、终止/截断状态和观测都基于这个列表计算
+        agents_at_step_start = self.agents[:]
+        # print(f"Active agents: {agents_at_step_start}")
+
         # 1. Process Actions (Movement, Turns, Special Actions)
-        rewards = {agent_id: 0.0 for agent_id in self.agents}
+        # <--- 修改: 使用 agents_at_step_start 初始化奖励字典 --->
+        rewards = {agent_id: 0.0 for agent_id in agents_at_step_start}
+        
         agent_action_map = {} # Store decoded action strings
         agent_new_positions = {} # Store intended new positions
         agent_new_orientations = {} # Store new orientations
 
         # Decode actions and handle turns immediately
         for agent_id, action_code in actions.items():
-            if agent_id not in self._agents: continue # Skip if agent is already done
+            # <--- 修改: 检查 agent_id 是否在 agents_at_step_start 中 --->
+            # 忽略那些在该步骤开始时就已经不活动的智能体的动作
+            if agent_id not in self._agents or agent_id not in agents_at_step_start: continue # Skip if agent is already done
+
             agent = self._agents[agent_id]
             action_str = ACTION_MEANING.get(action_code)
             agent_action_map[agent_id] = action_str
@@ -225,7 +237,11 @@ class CleanupEnv(ParallelEnv):
              self._agents[agent_id].set_pos(final_pos)
 
         # 3. Handle Consumption (Apples)
-        for agent_id, agent in self._agents.items():
+        # <--- 修改: 循环基于 agents_at_step_start --->
+        for agent_id in agents_at_step_start:
+            #if agent_id not in self._agents: continue # 确保智能体仍然存在
+        
+            agent = self._agents[agent_id]
             pos = agent.get_pos()
             tile = self.world_map[pos[0], pos[1]]
             if tile == APPLE:
@@ -233,11 +249,14 @@ class CleanupEnv(ParallelEnv):
                 self._update_map_tile(pos[0], pos[1], EMPTY)
 
         # 4. Handle Special Actions (Firing/Cleaning Beams) in random order
-        shuffled_agent_ids = list(self.agents)
-        random.shuffle(shuffled_agent_ids)
+        ######################################################################
+        # <--- 修改: 使用 agents_at_step_start 进行洗牌 --->
+        # shuffled_agent_ids = list(agents_at_step_start)
+        ######################################################################
+        # random.shuffle(shuffled_agent_ids)   # <--- 带来了随机性
         beam_updates = [] # Store tile changes from beams
 
-        for agent_id in shuffled_agent_ids:
+        for agent_id in agents_at_step_start: #shuffled_agent_ids:  无随机性
             agent = self._agents.get(agent_id)
             if not agent: continue # Agent might be done
             action_str = agent_action_map.get(agent_id)
@@ -262,7 +281,6 @@ class CleanupEnv(ParallelEnv):
         for r, c, char in beam_updates:
              self._update_map_tile(r, c, char)
 
-
         # 5. Update Environment State (Waste/Apple Spawning)
         self._compute_probabilities() # Update probs based on current waste
         spawn_updates = self._spawn_apples_and_waste()
@@ -270,23 +288,31 @@ class CleanupEnv(ParallelEnv):
             self._update_map_tile(r, c, char)
 
         # 6. Calculate Rewards and Termination/Truncation
-        terminations = {agent_id: False for agent_id in self.agents}
-        truncations = {agent_id: False for agent_id in self.agents}
-        infos = {agent_id: {} for agent_id in self.agents}
-
+        # <--- 修改: 基于 agents_at_step_start 初始化状态字典 --->
+        terminations = {agent_id: False for agent_id in agents_at_step_start}
+        truncations = {agent_id: False for agent_id in agents_at_step_start}
+        infos = {agent_id: {} for agent_id in agents_at_step_start}
+        
         # Get rewards accumulated by agents
-        for agent_id, agent in self._agents.items():
-             rewards[agent_id] += agent.consume_reward() # Add rewards from hits/consumption
+        for agent_id in agents_at_step_start:
+            # if agent_id in self._agents: # Ensure agent is still active
+            agent = self._agents.get(agent_id)
+            if agent:  # Check if agent exists before consuming reward
+                rewards[agent_id] += agent.consume_reward() # Add rewards from hits/consumption
+            else:
+                print(f"Warning: Agent {agent_id} not found in self._agents.")
 
         # Apply collective/IAR rewards if enabled (Simplified - full IAR needs careful implementation)
+        # collective reeward, inequity penalty
+        # use_collective_reward, inequity_averse_reward = true : 执行
         if self.use_collective_reward:
              total_reward = sum(rewards.values())
-             rewards = {agent_id: total_reward for agent_id in self.agents}
+             rewards = {agent_id: total_reward for agent_id in agents_at_step_start}
         elif self.inequity_averse_reward and self.num_agents > 1:
              current_rewards = rewards.copy()
-             for agent_id_i in self.agents:
+             for agent_id_i in agents_at_step_start:
                  inequity_penalty = 0
-                 for agent_id_j in self.agents:
+                 for agent_id_j in agents_at_step_start:
                      if agent_id_i == agent_id_j: continue
                      diff = current_rewards[agent_id_j] - current_rewards[agent_id_i]
                      if diff > 0: # Disadvantageous inequity
@@ -297,19 +323,56 @@ class CleanupEnv(ParallelEnv):
 
 
         # Check truncation (max cycles)
-        if self.num_cycles >= self.max_cycles:
-            truncations = {agent_id: True for agent_id in self.agents}
-            self.agents = [] # Clear active agents list
+        is_truncated = self.num_cycles >= self.max_cycles
+        if is_truncated:
+            truncations = {agent_id: True for agent_id in agents_at_step_start}
+            # Don't clear self.agents here yet
 
-        # Get final observations for active agents
-        observations = {agent_id: self._get_observation(agent_id) for agent_id in self.agents}
+        # --- Modification Start: Get observations BEFORE updating self.agents ---
+        # Generate observations for all agents active at the start of the step
+        observations = {}
+        for agent_id in agents_at_step_start:
+            if agent_id in self._agents: # Check if agent object still exists
+                observations[agent_id] = self._get_observation(agent_id)
+            else:
+                # Handle cases where agent might have been unexpectedly removed
+                # Maybe return a default observation or log an error
+                # For now, we assume _get_observation handles missing agents gracefully if needed,
+                # or simply don't add the key if the agent object is gone.
+                # Let's assume _get_observation needs a valid agent_id from _agents
+                # If agent terminates/truncates, they might still need an obs for this final step
+                # The most robust way is perhaps calling _get_observation even if agent terminates this turn
+                 try:
+                     observations[agent_id] = self._get_observation(agent_id)
+                 except KeyError:
+                      print(f"Warning: Agent {agent_id} not found in self._agents when getting observation, though active at step start.")
+                      # Decide how to handle this: skip, add default, etc.
+                      # Skipping for now.
+                      pass
+
+
+        # --- Modification Start: Update self.agents list based on term/trunc flags ---
+        # Determine the agents who will be active in the *next* step
+        next_agents = []
+        for agent_id in agents_at_step_start:
+            if not terminations[agent_id] and not truncations[agent_id]:
+                next_agents.append(agent_id)
+        self.agents = next_agents
+        # --- Modification End ---
 
 
         if self.render_mode == "human":
             self.render()
 
         # PettingZoo expects dicts for all return values, keyed by agent ID
+        # Ensure all returned dicts have keys from agents_at_step_start
+        # (Observations dict is already handled. Rewards/Terms/Truncs/Infos were initialized based on it)
+
         return observations, rewards, terminations, truncations, infos
+
+
+
+
 
 
     def render(self) -> np.ndarray | None:
@@ -676,14 +739,30 @@ class CleanupEnv(ParallelEnv):
         return spawn_updates
 
 # --- PettingZoo AEC Wrapper --- (Optional but common)
-def env(**kwargs):
-    """Creates a PettingZoo AEC environment."""
-    parallel_env = CleanupEnv(**kwargs)
+# def env(**kwargs):
+#     """Creates a PettingZoo AEC environment."""
+#     parallel_env = CleanupEnv(**kwargs)
+#     aec_env = parallel_to_aec(parallel_env)
+#     #aec_env = wrappers.AssertOutOfBoundsWrapper(aec_env) # Good for debugging
+#     #aec_env = wrappers.OrderEnforcingWrapper(aec_env)   # Ensures order
+#     return aec_env
+# --- 新的定义 ---
+def env(render_mode=None, **kwargs):
+    """
+    Creates a PettingZoo AEC environment.
+
+    Args:
+        render_mode: The rendering mode ('human', 'rgb_array', or None).
+        **kwargs: Other arguments to pass to the CleanupEnv constructor
+                  (e.g., num_agents, max_cycles).
+    """
+    # 将 render_mode 和其他 kwargs 传递给 CleanupEnv
+    parallel_env = CleanupEnv(render_mode=render_mode, **kwargs)
     aec_env = parallel_to_aec(parallel_env)
     #aec_env = wrappers.AssertOutOfBoundsWrapper(aec_env) # Good for debugging
     #aec_env = wrappers.OrderEnforcingWrapper(aec_env)   # Ensures order
     return aec_env
-
+# --- 修改结束 ---
 
 
 # # --- Example Usage ---

@@ -66,7 +66,9 @@ class CleanupAgent:
 
     def consume_reward(self) -> float:
         """Returns the accumulated reward and resets the internal counter."""
+        # print(f"Agent {self.agent_id} --- reward this turn {self.reward_this_turn}")
         reward = self.reward_this_turn
+        # print(f"agent $ {reward}")
         self.reward_this_turn = 0.0
         return reward
 
