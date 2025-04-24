@@ -64,8 +64,13 @@ class CleanupEnv(ParallelEnv):
         if num_agents > len(AGENT_CHARS):
              raise ValueError(f"Maximum number of agents is {len(AGENT_CHARS)}")
 
-        self.num_agents = num_agents
+        # --- 修改开始 ---
+        # 首先定义 possible_agents
         self.possible_agents = [f"agent_{i}" for i in range(num_agents)]
+        # num_agents 属性将从 len(self.possible_agents) 自动获取，移除下面这行
+        # self.num_agents = num_agents # <--- 删除或注释掉这一行
+        # --- 修改结束 ---
+
         self.agent_id_map = {i: f"agent_{i}" for i in range(num_agents)}
         self.render_mode = render_mode
         self.max_cycles = max_cycles
@@ -207,7 +212,7 @@ class CleanupEnv(ParallelEnv):
                 agent.set_orientation(new_orientation)
                 agent_new_orientations[agent_id] = new_orientation
             elif action_str in MOVE_ACTIONS:
-                move_vec = MOVE_ACTIONS[action_str]
+                move_vec = MOVE_ACTIONS[action_str]    #形如[0,1]
                 # Rotate move vector based on agent orientation
                 rotated_move = self._rotate_vector(move_vec, agent.get_orientation())
                 intended_pos = agent.get_pos() + rotated_move
@@ -429,30 +434,38 @@ class CleanupEnv(ParallelEnv):
 
     def _rotate_vector(self, vector: np.ndarray, orientation: str) -> np.ndarray:
         """Rotates a move vector based on the agent's orientation."""
+        # Check if the input vector is the 'STAY' action first
+        if np.array_equal(vector, MOVE_ACTIONS["STAY"]):
+            return np.array([0, 0])
+
+        # If orientation is UP, no rotation is needed
         if orientation == "UP":
             return vector
-        elif orientation == "RIGHT":
-            # (x, y) -> (-y, x) relative to UP's (0, -1) -> (1, 0) etc.
-            # Let's use a simpler rotation matrix logic based on UP=(0,-1), RIGHT=(1,0) etc.
-            # Original code used direct matrix multiplication, let's map it:
-            # If move is UP (-1,0): LEFT=(-1,0), RIGHT=(1,0), DOWN=(1,0)? No, this is complex.
-            # Let's use the definition: UP -> [-1, 0], DOWN -> [1, 0], LEFT -> [0, -1], RIGHT -> [0, 1]
-            # Action is relative to orientation. E.g., MOVE_UP when facing RIGHT means move in [0, 1]
-            orientation_vec = ORIENTATION_VECTORS[orientation]
-            if np.array_equal(vector, MOVE_ACTIONS["MOVE_UP"]): # Forward
-                return orientation_vec
-            elif np.array_equal(vector, MOVE_ACTIONS["MOVE_DOWN"]): # Backward
-                return -orientation_vec
-            elif np.array_equal(vector, MOVE_ACTIONS["MOVE_LEFT"]): # Strafe Left
-                # Rotate orientation vector 90 deg left (counter-clockwise)
-                return np.array([orientation_vec[1], -orientation_vec[0]])
-            elif np.array_equal(vector, MOVE_ACTIONS["MOVE_RIGHT"]): # Strafe Right
-                # Rotate orientation vector 90 deg right (clockwise)
-                 return np.array([-orientation_vec[1], orientation_vec[0]])
-            elif np.array_equal(vector, MOVE_ACTIONS["STAY"]):
-                return np.array([0, 0])
-            else: # Should not happen for move actions
-                return np.array([0,0])
+
+        # For other orientations (RIGHT, DOWN, LEFT), calculate rotation
+        orientation_vec = ORIENTATION_VECTORS[orientation]
+
+        # Determine the relative move type
+        if np.array_equal(vector, MOVE_ACTIONS["MOVE_UP"]): # Relative Forward
+            return orientation_vec
+        elif np.array_equal(vector, MOVE_ACTIONS["MOVE_DOWN"]): # Relative Backward
+            return -orientation_vec
+        elif np.array_equal(vector, MOVE_ACTIONS["MOVE_LEFT"]): # Relative Strafe Left
+            # Rotate orientation vector 90 deg left (counter-clockwise)
+            # Logic: [x, y] -> [-y, x]. Your original code had [y, -x] for left??   
+            # original code is wrong!!!!!!!!!!!!!!!!!!!!!!
+            # the correct rotation is [-y, x]
+            # return np.array([-orientation_vec[1], orientation_vec[0]]) # This is clockwise (Right)
+            return np.array([-orientation_vec[1], orientation_vec[0]]) # 
+        elif np.array_equal(vector, MOVE_ACTIONS["MOVE_RIGHT"]): # Relative Strafe Right
+            # Rotate orientation vector 90 deg right (clockwise)
+            # Logic: [x, y] -> [y, -x]. 
+            # return np.array([orientation_vec[1], -orientation_vec[0]]) # This is counter-clockwise (Left)
+            return np.array([orientation_vec[1], -orientation_vec[0]])
+        else:
+            # Should not happen if vector is a valid move action from MOVE_ACTIONS
+            print(f"Warning: Unexpected move vector {vector} in _rotate_vector")
+            return np.array([0, 0]) # Return STAY as a safe default
 
 
     def _is_position_valid(self, pos: np.ndarray) -> bool:
