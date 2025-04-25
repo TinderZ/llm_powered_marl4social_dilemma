@@ -22,13 +22,13 @@ def get_activation_fn(activation_str: str) -> nn.Module:
         raise ValueError(f"Unsupported activation function: {activation_str}")
 
 # Normc initialization (often used in older RL papers)
-def normc_initializer(std: float = 1.0):
-    """Returns a function to initialize weights with unit norm columns."""
-    def initializer(tensor):
-        out = np.random.randn(*tensor.shape).astype(np.float32)
-        out *= std / np.sqrt(np.square(out).sum(axis=0, keepdims=True))
-        tensor.data.copy_(torch.from_numpy(out))
-    return initializer
+# def normc_initializer(std: float = 1.0):
+#     """Returns a function to initialize weights with unit norm columns."""
+#     def initializer(tensor):
+#         out = np.random.randn(*tensor.shape).astype(np.float32)
+#         out *= std / np.sqrt(np.square(out).sum(axis=0, keepdims=True))
+#         tensor.data.copy_(torch.from_numpy(out))
+#     return initializer
 
 def build_fc_layers(
     input_dim: int,
@@ -59,8 +59,10 @@ def build_fc_layers(
     for i, size in enumerate(fcnet_hiddens):
         linear_layer = nn.Linear(prev_layer_size, size)
         # Apply normc initialization
-        normc_initializer(init_std)(linear_layer.weight)
-        nn.init.constant_(linear_layer.bias, 0.0)
+        # normc_initializer(init_std)(linear_layer.weight)
+        # nn.init.constant_(linear_layer.bias, 0.0)
+        # let PyTorch use its default initialization for nn.Linear layers. 
+        # PyTorch's default (Kaiming uniform) is a strong modern baseline.
 
         layers.append(linear_layer)
         layers.append(act_fn)

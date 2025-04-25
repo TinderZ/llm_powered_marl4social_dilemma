@@ -3,8 +3,8 @@ import torch
 import torch.nn as nn
 import numpy as np
 from typing import Tuple
-#111
-from common_layers import normc_initializer # Assuming normc is desired
+
+#from common_layers import normc_initializer # Assuming normc is desired
 
 class ActorCriticLSTM(nn.Module):
     """
@@ -45,12 +45,12 @@ class ActorCriticLSTM(nn.Module):
             nn.init.constant_(self.actor_head.bias, 0.0)
             nn.init.orthogonal_(self.critic_head.weight, gain=1.0)
             nn.init.constant_(self.critic_head.bias, 0.0)
-        else:
-            # Fallback to normc or default PyTorch init if needed
-            # Example using normc for critic head (as in original repo)
-            normc_initializer(0.01)(self.critic_head.weight)
-            nn.init.constant_(self.critic_head.bias, 0.0)
-            # Default init for actor and LSTM or apply normc too
+        # else:
+        #     # Fallback to normc or default PyTorch init if needed
+        #     # Example using normc for critic head (as in original repo)
+        #     normc_initializer(0.01)(self.critic_head.weight)
+        #     nn.init.constant_(self.critic_head.bias, 0.0)
+        #     # Default init for actor and LSTM or apply normc too
 
 
     def forward(self, x: torch.Tensor, state: Tuple[torch.Tensor, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
