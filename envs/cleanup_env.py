@@ -10,8 +10,8 @@ from gymnasium import spaces
 from pettingzoo import ParallelEnv
 from pettingzoo.utils import parallel_to_aec, wrappers
 
-from cleanup_agent import CleanupAgent
-from constants import (ACTION_MEANING, APPLE, APPLE_REWARD, APPLE_RESPAWN_PROBABILITY,
+from envs.cleanup_agent import CleanupAgent
+from envs.constants import (ACTION_MEANING, APPLE, APPLE_REWARD, APPLE_RESPAWN_PROBABILITY,
                      APPLE_SPAWN, AGENT_CHARS, CLEANUP_MAP, CLEANUP_VIEW_SIZE, CLEAN_BEAM_LENGTH,
                      CLEAN_BEAM_WIDTH, CLEAN_REWARD, CLEANABLE_TILES, CLEAN_BLOCKING_CELLS,
                      CLEANED_TILE_RESULT, CLEAN_BEAM, DEFAULT_COLOURS, EMPTY, FIRE_BEAM_LENGTH,
@@ -185,6 +185,8 @@ class CleanupEnv(ParallelEnv):
         # Get initial observations
         observations = {agent_id: self._get_observation(agent_id) for agent_id in self.agents}
         infos = {agent_id: {} for agent_id in self.agents} # Create empty info dict
+        #print(f"Initial observations: {observations}")
+        #print(f"Initial infos: {infos}")
 
         if self.render_mode == "human":
             self.render()
