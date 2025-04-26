@@ -1,6 +1,6 @@
 # cleanup_agent.py
 import numpy as np
-from constants import ORIENTATIONS, AGENT_CHARS
+from envs.constants import ORIENTATIONS, AGENT_CHARS
 
 class CleanupAgent:
     """Represents an agent in the Cleanup environment."""
@@ -77,13 +77,13 @@ class CleanupAgent:
         self.terminated = terminated
 
     def set_truncated(self, truncated: bool = True):
-         """Sets the truncated status."""
-         self.truncated = truncated
+        """Sets the truncated status."""
+        self.truncated = truncated
 
     def reset(self, start_pos: np.ndarray, start_orientation: str):
-         """Resets the agent's state."""
-         self.pos = np.array(start_pos, dtype=int)
-         self.orientation = start_orientation
-         self.reward_this_turn = 0.0
-         self.terminated = False
-         self.truncated = False
+        """Resets the agent's state."""
+        self.pos = np.array(start_pos, dtype=int)
+        self.orientation = start_orientation
+        self.reward_this_turn = 0.0
+        self.terminated = False
+        self.truncated = False
