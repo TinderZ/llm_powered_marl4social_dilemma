@@ -349,6 +349,51 @@ class CleanupEnv(ParallelEnv):
             truncations = {agent_id: True for agent_id in agents_at_step_start}
             # Don't clear self.agents here yet
 
+
+
+        if self.use_llm:
+            self.llm_update_counter += 1
+            if self.llm_update_counter % self.llm_f_step == 0:
+                # 1. Gather Game Information
+                current_waste = np.count_nonzero(self.world_map == WASTE)
+                waste_density = 0
+                if self.potential_waste_area > 0:
+                    waste_density = current_waste / self.potential_waste_area
+
+                game_info = ""
+                if waste_density >= THRESHOLD_DEPLETION:
+                    game_info = "River severely polluted, apples cannot grow."
+                elif waste_density <= THRESHOLD_RESTORATION:
+                     game_info = "River is clean, apples can grow well."
+                else:
+                    # More nuanced info could be added here
+                    game_info = f"River pollution level moderate (density: {waste_density:.2f})."
+
+                # 2. Process Info and Get Commands for each agent active at step start
+                #llm_outputs_this_step = {}
+                for agent_id in agents_at_step_start:
+                    if agent_id in self.llm_modules:
+                        command = self.llm_modules[agent_id].process_game_info(game_info)
+                        self.llm_commands[agent_id] = command
+                        #llm_outputs_this_step[agent_id] = command
+                    else:
+                        # Handle case where agent might not have an LLM module? Default to None.
+                        self.llm_commands[agent_id] = None
+                        #llm_outputs_this_step[agent_id] = None
+
+
+                # 3. TODO: Implement LLM Discussion
+                # This is where agents' LLMs could communicate based on llm_outputs_this_step
+                # For now, we just store the individual commands.
+                # Example placeholder:
+                # for agent_id in agents_at_step_start:
+                #     if agent_id in self.llm_modules:
+                #         # Pass outputs from others (excluding self)
+                #         other_outputs = {k:v for k, v in llm_outputs_this_step.items() if k != agent_id}
+                #         self.llm_modules[agent_id].discuss(other_outputs)
+                #         # Discussion might modify self.llm_commands[agent_id]
+                
+
         # --- Modification Start: Get observations BEFORE updating self.agents ---
         # Generate observations for all agents active at the start of the step
         observations = {}
@@ -476,6 +521,40 @@ class CleanupEnv(ParallelEnv):
         return rgb_map
 
 
+# --- New Masking Map Functions ---
+    def _map_to_colors_mask_apple(self) -> np.ndarray:
+        """Generates RGB map masking Apples ('A') as Grass ('B')."""
+        map_with_agents = self._get_map_with_agents()
+        rgb_map = np.zeros((self.map_height, self.map_width, 3), dtype=np.uint8)
+        grass_color = DEFAULT_COLOURS[APPLE_SPAWN] # Color of 'B'
+
+        for r in range(self.map_height):
+            for c in range(self.map_width):
+                char = map_with_agents[r, c]
+                if char == APPLE:
+                    rgb_map[r, c, :] = grass_color
+                else:
+                    rgb_map[r, c, :] = DEFAULT_COLOURS.get(char, DEFAULT_COLOURS[b' '])
+        return rgb_map
+
+    def _map_to_colors_mask_waste(self) -> np.ndarray:
+        """Generates RGB map masking Waste ('H') as River ('R')."""
+        map_with_agents = self._get_map_with_agents()
+        rgb_map = np.zeros((self.map_height, self.map_width, 3), dtype=np.uint8)
+        river_color = DEFAULT_COLOURS[RIVER] # Color of 'R'
+
+        for r in range(self.map_height):
+            for c in range(self.map_width):
+                char = map_with_agents[r, c]
+                if char == WASTE:
+                    rgb_map[r, c, :] = river_color
+                else:
+                    rgb_map[r, c, :] = DEFAULT_COLOURS.get(char, DEFAULT_COLOURS[b' '])
+        return rgb_map
+    # --- End New Masking Map Functions ---
+
+
+
     def _get_agent_view(self, agent: CleanupAgent, full_rgb_map: np.ndarray) -> np.ndarray:
         """Extracts the agent's egocentric view from the full RGB map."""
         pos = agent.get_pos()
@@ -509,15 +588,25 @@ class CleanupEnv(ParallelEnv):
 
 
     def _get_observation(self, agent_id: str) -> np.ndarray:
-        """Generates the observation for a specific agent."""
+        """
+        Generates the observation for a specific agent, potentially masked by LLM command.
+        """
         agent = self._agents[agent_id]
-        full_rgb_map = self._map_to_colors()
+        command = self.llm_commands.get(agent_id) if self.use_llm else None
 
-        # if self.use_llm:
-        #     # Additional logic for using LLM can be implemented here
+        # Determine which map rendering function to use
+        if self.use_llm and command == "clean up":
+            # Mask apples (show as grass 'B')
+            map_rgb_for_view = self._map_to_colors_mask_apple()
+        elif self.use_llm and command == "collect apples":
+            # Mask waste (show as river 'R')
+            map_rgb_for_view = self._map_to_colors_mask_waste()
+        else:
+            # Default: no masking or LLM not used
+            map_rgb_for_view = self._map_to_colors()
 
-
-        agent_view_rgb = self._get_agent_view(agent, full_rgb_map)
+        # Get the egocentric view from the chosen map
+        agent_view_rgb = self._get_agent_view(agent, map_rgb_for_view)
         return agent_view_rgb
 
 
@@ -540,16 +629,8 @@ class CleanupEnv(ParallelEnv):
         elif np.array_equal(vector, MOVE_ACTIONS["MOVE_DOWN"]): # Relative Backward
             return -orientation_vec
         elif np.array_equal(vector, MOVE_ACTIONS["MOVE_LEFT"]): # Relative Strafe Left
-            # Rotate orientation vector 90 deg left (counter-clockwise)
-            # Logic: [x, y] -> [-y, x]. Your original code had [y, -x] for left??   
-            # original code is wrong!!!!!!!!!!!!!!!!!!!!!!
-            # the correct rotation is [-y, x]
-            # return np.array([-orientation_vec[1], orientation_vec[0]]) # This is clockwise (Right)
             return np.array([-orientation_vec[1], orientation_vec[0]]) # 
         elif np.array_equal(vector, MOVE_ACTIONS["MOVE_RIGHT"]): # Relative Strafe Right
-            # Rotate orientation vector 90 deg right (clockwise)
-            # Logic: [x, y] -> [y, -x]. 
-            # return np.array([orientation_vec[1], -orientation_vec[0]]) # This is counter-clockwise (Left)
             return np.array([orientation_vec[1], -orientation_vec[0]])
         else:
             # Should not happen if vector is a valid move action from MOVE_ACTIONS
