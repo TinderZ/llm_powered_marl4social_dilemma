@@ -90,8 +90,8 @@ DEFAULT_COLOURS = {
     b'0': np.array([0, 0, 0], dtype=np.uint8),          # Black background beyond map walls
     b'': np.array([180, 180, 180], dtype=np.uint8),     # Grey board walls
     b'@': np.array([180, 180, 180], dtype=np.uint8),     # Grey board walls
-    b'A': np.array([0, 255, 0], dtype=np.uint8),        # Green apples  TODO: red apples
-    #b'B': np.array([255, 0, 0], dtype=np.uint8),        #  TODO：草地怎么没颜色
+    b'A': np.array([255, 0, 0], dtype=np.uint8),        # red apples
+    b'B': np.array([124, 252, 0], dtype=np.uint8),      # green lawns
     b'F': np.array([255, 255, 0], dtype=np.uint8),      # Yellow firing beam (penalty)
     b'P': np.array([159, 67, 255], dtype=np.uint8),     # Generic agent (any player) - Will be overridden by agent ID
     # Default agent colors (can be extended)
@@ -148,7 +148,7 @@ AGENT_CHARS = [str(i).encode('ascii') for i in range(1, 10)] # b'1' to b'9'
 
 # 不可通行的地块 (Non-walkable Tiles)
 # Original included 'D', 'w', 'W' for switch, not relevant here
-NON_WALKABLE = [WALL, WASTE] # Agents cannot walk *into* waste
+NON_WALKABLE = [WALL] #, WASTE] # Agents cannot walk *into* waste  # 污染也可以通行，不然改变观察之后，agent出不去了
 
 # 清洁射线可交互的地块 (Tiles Clean Beam Interacts With)
 CLEANABLE_TILES = [WASTE]
