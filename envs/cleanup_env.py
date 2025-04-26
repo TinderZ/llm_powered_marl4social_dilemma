@@ -112,7 +112,7 @@ class CleanupEnv(ParallelEnv):
         self.river_points = self._find_points(RIVER)
         self.stream_points = self._find_points(STREAM) # Stream tiles 'S'
         self.wall_points = self._find_points(WALL)
-        # TODO - Add CLC infos for llm
+        
 
         # Waste dynamics related points
         self.potential_waste_area = len(self.waste_spawn_points) + len(self.river_points)
@@ -350,52 +350,49 @@ class CleanupEnv(ParallelEnv):
             # Don't clear self.agents here yet
 
 
+        # 7. get llm commands
+        if self.use_llm and (self.num_cycles % self.llm_f_step == 0):
+            # 1. Gather Game Information
+            current_waste = np.count_nonzero(self.world_map == WASTE)
+            waste_density = 0
+            if self.potential_waste_area > 0:
+                waste_density = current_waste / self.potential_waste_area
 
-        if self.use_llm:
-            self.llm_update_counter += 1
-            if self.llm_update_counter % self.llm_f_step == 0:
-                # 1. Gather Game Information
-                current_waste = np.count_nonzero(self.world_map == WASTE)
-                waste_density = 0
-                if self.potential_waste_area > 0:
-                    waste_density = current_waste / self.potential_waste_area
+            game_info = ""
+            if waste_density >= THRESHOLD_DEPLETION:
+                game_info = "River severely polluted, apples cannot grow."
+            elif waste_density <= THRESHOLD_RESTORATION:
+                    game_info = "River is clean, apples can grow well."
+            else:
+                # More nuanced info could be added here
+                game_info = f"River pollution level moderate (density: {waste_density:.2f})."
 
-                game_info = ""
-                if waste_density >= THRESHOLD_DEPLETION:
-                    game_info = "River severely polluted, apples cannot grow."
-                elif waste_density <= THRESHOLD_RESTORATION:
-                     game_info = "River is clean, apples can grow well."
+            # 2. Process Info and Get Commands for each agent active at step start
+            #llm_outputs_this_step = {}
+            for agent_id in agents_at_step_start:
+                if agent_id in self.llm_modules:
+                    command = self.llm_modules[agent_id].process_game_info(game_info)
+                    self.llm_commands[agent_id] = command
+                    #llm_outputs_this_step[agent_id] = command
                 else:
-                    # More nuanced info could be added here
-                    game_info = f"River pollution level moderate (density: {waste_density:.2f})."
-
-                # 2. Process Info and Get Commands for each agent active at step start
-                #llm_outputs_this_step = {}
-                for agent_id in agents_at_step_start:
-                    if agent_id in self.llm_modules:
-                        command = self.llm_modules[agent_id].process_game_info(game_info)
-                        self.llm_commands[agent_id] = command
-                        #llm_outputs_this_step[agent_id] = command
-                    else:
-                        # Handle case where agent might not have an LLM module? Default to None.
-                        self.llm_commands[agent_id] = None
-                        #llm_outputs_this_step[agent_id] = None
+                    # Handle case where agent might not have an LLM module? Default to None.
+                    self.llm_commands[agent_id] = None
+                    #llm_outputs_this_step[agent_id] = None
 
 
-                # 3. TODO: Implement LLM Discussion
-                # This is where agents' LLMs could communicate based on llm_outputs_this_step
-                # For now, we just store the individual commands.
-                # Example placeholder:
-                # for agent_id in agents_at_step_start:
-                #     if agent_id in self.llm_modules:
-                #         # Pass outputs from others (excluding self)
-                #         other_outputs = {k:v for k, v in llm_outputs_this_step.items() if k != agent_id}
-                #         self.llm_modules[agent_id].discuss(other_outputs)
-                #         # Discussion might modify self.llm_commands[agent_id]
+            # 3. TODO: Implement LLM Discussion
+            # This is where agents' LLMs could communicate based on llm_outputs_this_step
+            # For now, we just store the individual commands.
+            # Example placeholder:
+            # for agent_id in agents_at_step_start:
+            #     if agent_id in self.llm_modules:
+            #         # Pass outputs from others (excluding self)
+            #         other_outputs = {k:v for k, v in llm_outputs_this_step.items() if k != agent_id}
+            #         self.llm_modules[agent_id].discuss(other_outputs)
+            #         # Discussion might modify self.llm_commands[agent_id]
                 
-
-        # --- Modification Start: Get observations BEFORE updating self.agents ---
-        # Generate observations for all agents active at the start of the step
+        
+        # 8. Generate observations for all agents active at the start of the step
         observations = {}
         for agent_id in agents_at_step_start:
             #if agent_id in self._agents: # Check if agent object still exists
