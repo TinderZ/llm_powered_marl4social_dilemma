@@ -11,6 +11,8 @@ from pettingzoo import ParallelEnv
 from pettingzoo.utils import parallel_to_aec, wrappers
 
 from cleanup_agent import CleanupAgent
+from llm_module import LLMModule
+
 from constants import (ACTION_MEANING, APPLE, APPLE_REWARD, APPLE_RESPAWN_PROBABILITY,
                      APPLE_SPAWN, AGENT_CHARS, CLEANUP_MAP, CLEANUP_VIEW_SIZE, CLEAN_BEAM_LENGTH,
                      CLEAN_BEAM_WIDTH, CLEAN_REWARD, CLEANABLE_TILES, CLEAN_BLOCKING_CELLS,
@@ -44,6 +46,9 @@ class CleanupEnv(ParallelEnv):
         inequity_averse_reward: bool = False, # Not implemented in detail from original, but kept as option
         alpha: float = 0.0,                   # Parameter for IAR
         beta: float = 0.0,                    # Parameter for IAR
+
+        use_llm: bool = False,                # Enable/disable LLM features
+        llm_f_step: int = 50                  # Frequency of LLM updates
     ):
         """
         Initializes the Cleanup environment.
@@ -56,6 +61,9 @@ class CleanupEnv(ParallelEnv):
             inequity_averse_reward: Whether to use inequity aversion rewards.
             alpha: Inequity aversion parameter (penalty for others having more).
             beta: Inequity aversion parameter (penalty for having less than others).
+
+            use_llm: Whether to enable LLM-based observation masking.
+            llm_f_step: How often (in steps) the LLM processes game info.
         """
         super().__init__()
 
@@ -80,6 +88,17 @@ class CleanupEnv(ParallelEnv):
         self.inequity_averse_reward = inequity_averse_reward
         self.alpha = alpha
         self.beta = beta
+
+        # LLM-related attributes
+        self.use_llm = use_llm 
+        self.llm_f_step = llm_f_step
+        self.llm_modules: dict[str, LLMModule] = {}
+        self.llm_commands: dict[str, str | None] = {} # Store current command per agent
+        if self.use_llm:
+            print(f"LLM integration enabled. Update frequency: {self.llm_f_step} steps.")
+            for agent_id in self.possible_agents:
+                 self.llm_modules[agent_id] = LLMModule(agent_id)
+                 self.llm_commands[agent_id] = None # Initialize with no command
 
         # Load map and initialize state variables
         self.base_map = self._ascii_to_numpy(CLEANUP_MAP)
@@ -182,6 +201,11 @@ class CleanupEnv(ParallelEnv):
         self.num_cycles = 0
         self.beam_pos = []
 
+        # Reset LLM commands
+        if self.use_llm:
+            for agent_id in self.possible_agents:
+                self.llm_commands[agent_id] = None
+
         # Get initial observations
         observations = {agent_id: self._get_observation(agent_id) for agent_id in self.agents}
         infos = {agent_id: {} for agent_id in self.agents} # Create empty info dict
@@ -249,10 +273,8 @@ class CleanupEnv(ParallelEnv):
                 self._update_map_tile(pos[0], pos[1], EMPTY)
 
         # 4. Handle Special Actions (Firing/Cleaning Beams) in random order
-        ######################################################################
         # <--- 修改: 使用 agents_at_step_start 进行洗牌 --->
         # shuffled_agent_ids = list(agents_at_step_start)
-        ######################################################################
         # random.shuffle(shuffled_agent_ids)   # <--- 带来了随机性
         beam_updates = [] # Store tile changes from beams
 
@@ -304,7 +326,6 @@ class CleanupEnv(ParallelEnv):
 
         # Apply collective/IAR rewards if enabled (Simplified - full IAR needs careful implementation)
         # collective reeward, inequity penalty
-        # use_collective_reward, inequity_averse_reward = true : 执行
         if self.use_collective_reward:
              total_reward = sum(rewards.values())
              rewards = {agent_id: total_reward for agent_id in agents_at_step_start}
@@ -332,9 +353,9 @@ class CleanupEnv(ParallelEnv):
         # Generate observations for all agents active at the start of the step
         observations = {}
         for agent_id in agents_at_step_start:
-            if agent_id in self._agents: # Check if agent object still exists
-                observations[agent_id] = self._get_observation(agent_id)
-            else:
+            #if agent_id in self._agents: # Check if agent object still exists
+            observations[agent_id] = self._get_observation(agent_id)
+            #else:
                 # Handle cases where agent might have been unexpectedly removed
                 # Maybe return a default observation or log an error
                 # For now, we assume _get_observation handles missing agents gracefully if needed,
@@ -342,13 +363,13 @@ class CleanupEnv(ParallelEnv):
                 # Let's assume _get_observation needs a valid agent_id from _agents
                 # If agent terminates/truncates, they might still need an obs for this final step
                 # The most robust way is perhaps calling _get_observation even if agent terminates this turn
-                 try:
-                     observations[agent_id] = self._get_observation(agent_id)
-                 except KeyError:
-                      print(f"Warning: Agent {agent_id} not found in self._agents when getting observation, though active at step start.")
-                      # Decide how to handle this: skip, add default, etc.
-                      # Skipping for now.
-                      pass
+                #  try:
+                #      observations[agent_id] = self._get_observation(agent_id)
+                #  except KeyError:
+                #       print(f"Warning: Agent {agent_id} not found in self._agents when getting observation, though active at step start.")
+                #       # Decide how to handle this: skip, add default, etc.
+                #       # Skipping for now.
+                #       pass
 
 
         # --- Modification Start: Update self.agents list based on term/trunc flags ---
@@ -491,6 +512,11 @@ class CleanupEnv(ParallelEnv):
         """Generates the observation for a specific agent."""
         agent = self._agents[agent_id]
         full_rgb_map = self._map_to_colors()
+
+        # if self.use_llm:
+        #     # Additional logic for using LLM can be implemented here
+
+
         agent_view_rgb = self._get_agent_view(agent, full_rgb_map)
         return agent_view_rgb
 
@@ -708,7 +734,8 @@ class CleanupEnv(ParallelEnv):
             if waste_density <= THRESHOLD_RESTORATION:
                 self.current_apple_spawn_prob = APPLE_RESPAWN_PROBABILITY
             else:
-                # Linear interpolation between restoration and depletion thresholds
+                # Linear interpolation between restoration and depletion thresholds 
+                # 恢复阈值和耗尽阈值之间的线性插值
                 prob = (1.0 - (waste_density - THRESHOLD_RESTORATION) /
                         (THRESHOLD_DEPLETION - THRESHOLD_RESTORATION)) * APPLE_RESPAWN_PROBABILITY
                 self.current_apple_spawn_prob = max(0, prob) # Ensure non-negative
@@ -765,7 +792,7 @@ def env(render_mode=None, **kwargs):
 # --- 修改结束 ---
 
 
-# # --- Example Usage ---
+# # # --- Example Usage ---
 # if __name__ == "__main__":
 #     num_agents = 2
 #     render_mode = "human" # "rgb_array" or None
