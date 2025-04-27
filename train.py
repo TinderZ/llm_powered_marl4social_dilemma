@@ -8,6 +8,7 @@ from collections import defaultdict
 import gymnasium as gym
 from envs.cleanup_env import CleanupEnv as make_cleanup_env
 from algorithm.ppo_baseline import PPOBaseline
+import matplotlib.pyplot as plt
 
 class RolloutCollector:
     """Collects rollouts from environment using current policy."""
@@ -146,6 +147,10 @@ class RolloutCollector:
             
             # Add placeholder for log_probs (will be computed during update)
             rollouts_by_agent[agent_id]["log_probs"] = np.zeros_like(rewards)
+
+            for key, value in rollouts_by_agent[agent_id].items():
+                if isinstance(value, torch.Tensor):
+                    rollouts_by_agent[agent_id][key] = value.cpu().numpy()
         
         return rollouts_by_agent
     
@@ -159,6 +164,10 @@ def worker_process(args, rank, return_dict):
         # Set random seeds
         np.random.seed(args.seed + rank)
         torch.manual_seed(args.seed + rank)
+
+        if args.gpus_per_worker > 0:
+            gpu_id = rank % torch.cuda.device_count()
+            os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
         
         # Create environment
         env_fn = lambda: make_cleanup_env(
@@ -198,12 +207,23 @@ def worker_process(args, rank, return_dict):
         
         # Collect rollouts
         rollouts = collector.collect()
-        
+
+        cpu_rollouts = {}
+        for agent_id, agent_data in rollouts.items():
+            cpu_rollouts[agent_id] = {}
+            for key, value in agent_data.items():
+                if isinstance(value, torch.Tensor):
+                    cpu_rollouts[agent_id][key] = value.cpu().numpy()
+                else:
+                    cpu_rollouts[agent_id][key] = value
+
         # Close collector
         collector.close()
         
         # Store rollouts in return_dict
-        return_dict[rank] = rollouts
+        return_dict[rank] = cpu_rollouts
+
+
     except Exception as e:
         # Log the error for debugging
         print(f"Error in worker {rank}: {e}")
@@ -220,6 +240,29 @@ def parse_lr_schedule(steps_str, weights_str):
     return list(zip(steps, weights))
 
 def main():
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+    
+    plt.ion()                                 # 打开交互模式
+    fig, (ax_p, ax_v) = plt.subplots(1, 2, sharex=True, figsize=(10, 4))
+    plt.show(block=False)                     # 非阻塞地弹出窗口一次
+    policy_losses = []
+    value_losses = []
+    # 在两个子图上分别画线
+    line_p, = ax_p.plot([], [], label="Policy Loss")
+    ax_p.set_title("Policy Loss")
+    ax_p.set_ylabel("Loss")
+    ax_p.legend()
+
+    line_v, = ax_v.plot([], [], label="Value Loss")
+    ax_v.set_title("Value Loss")
+    ax_v.set_ylabel("Loss")
+    ax_v.set_xlabel("Update Step")
+    ax_v.legend()
+
+
+    mp.set_start_method('spawn', force=True)
     parser = argparse.ArgumentParser(description="Train PPO on Cleanup environment")
     
     # Add the arguments as per the provided command-line options
@@ -305,7 +348,7 @@ def main():
                     for param_group in agent.optimizer.param_groups:
                         param_group['lr'] = lr
                 break
-        
+        print("finish update learning rate")
         # Collect rollouts in parallel
         manager = mp.Manager()
         return_dict = manager.dict()
@@ -316,6 +359,8 @@ def main():
             p.start()
             processes.append(p)
         
+        print("finish start process")
+
         for p in processes:
             p.join()
         
@@ -324,6 +369,8 @@ def main():
                 print(f"Worker {rank} failed or did not return results. Check logs for details.")
                 continue  # Skip this worker
         
+        print("finish join process")
+
         # Combine rollouts from all workers
         combined_rollouts = defaultdict(lambda: defaultdict(list))
         
@@ -333,14 +380,20 @@ def main():
                 for key, value in agent_rollouts.items():
                     combined_rollouts[agent_id][key].extend(value)
         
+        print("finish combine rollouts")
+
         # Convert lists to numpy arrays
         for agent_id in combined_rollouts:
             for key in combined_rollouts[agent_id]:
                 combined_rollouts[agent_id][key] = np.array(combined_rollouts[agent_id][key])
         
+        print("finish convert to numpy arrays")
+
         # Update policy
         update_metrics = policy.update(combined_rollouts)
         
+        print("finish update policy")
+
         # Update step count
         steps_this_update = sum(len(combined_rollouts[agent_id]["rewards"]) for agent_id in combined_rollouts)
         total_steps += steps_this_update
@@ -368,6 +421,19 @@ def main():
                       f"Policy Loss: {metrics['policy_loss']:.4f}, "
                       f"Value Loss: {metrics['value_loss']:.4f}, "
                       f"Entropy: {metrics['entropy']:.4f}")
+            
+            policy_losses.append(metrics["policy_loss"])
+            value_losses.append(metrics["value_loss"])
+
+            x = list(range(len(policy_losses)))
+            line_p.set_data(x, policy_losses)
+            ax_p.relim()
+            ax_p.autoscale_view()
+            line_v.set_data(x, value_losses)
+            ax_v.relim()
+            ax_v.autoscale_view()
+            fig.canvas.draw()
+            fig.canvas.flush_events()
         
         # Save checkpoint
         checkpoint_dir = os.path.join(args.output_dir, f"checkpoint_{total_steps}")
@@ -376,6 +442,7 @@ def main():
         
         # Save latest checkpoint
         policy.save(os.path.join(args.output_dir, "model_latest"))
+        fig.savefig(os.path.join(args.output_dir, "loss_plot.png"))
 
 if __name__ == "__main__":
     main()
