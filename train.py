@@ -8,6 +8,7 @@ from collections import defaultdict
 import gymnasium as gym
 from envs.cleanup_env import CleanupEnv as make_cleanup_env
 from algorithm.ppo_baseline import PPOBaseline
+import matplotlib.pyplot as plt
 
 class RolloutCollector:
     """Collects rollouts from environment using current policy."""
@@ -146,6 +147,10 @@ class RolloutCollector:
             
             # Add placeholder for log_probs (will be computed during update)
             rollouts_by_agent[agent_id]["log_probs"] = np.zeros_like(rewards)
+
+            for key, value in rollouts_by_agent[agent_id].items():
+                if isinstance(value, torch.Tensor):
+                    rollouts_by_agent[agent_id][key] = value.cpu().numpy()
         
         return rollouts_by_agent
     
@@ -159,6 +164,10 @@ def worker_process(args, rank, return_dict):
         # Set random seeds
         np.random.seed(args.seed + rank)
         torch.manual_seed(args.seed + rank)
+
+        if args.gpus_per_worker > 0:
+            gpu_id = rank % torch.cuda.device_count()
+            os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
         
         # Create environment
         env_fn = lambda: make_cleanup_env(
@@ -198,12 +207,23 @@ def worker_process(args, rank, return_dict):
         
         # Collect rollouts
         rollouts = collector.collect()
-        
+
+        cpu_rollouts = {}
+        for agent_id, agent_data in rollouts.items():
+            cpu_rollouts[agent_id] = {}
+            for key, value in agent_data.items():
+                if isinstance(value, torch.Tensor):
+                    cpu_rollouts[agent_id][key] = value.cpu().numpy()
+                else:
+                    cpu_rollouts[agent_id][key] = value
+
         # Close collector
         collector.close()
         
         # Store rollouts in return_dict
-        return_dict[rank] = rollouts
+        return_dict[rank] = cpu_rollouts
+
+
     except Exception as e:
         # Log the error for debugging
         print(f"Error in worker {rank}: {e}")
@@ -220,6 +240,53 @@ def parse_lr_schedule(steps_str, weights_str):
     return list(zip(steps, weights))
 
 def main():
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+    # Initialize plots with a 2x2 grid instead of 1x2
+    plt.ion()  # 打开交互模式
+    fig, axs = plt.subplots(2, 2, figsize=(12, 10))
+    plt.show(block=False)  # 非阻塞地弹出窗口一次
+    
+    # Initialize data containers for all metrics
+    policy_losses = []
+    value_losses = []
+    total_rewards = []  # New: To track total rewards across all agents
+    reward_variances = []  # New: To track variance in rewards between agents
+    
+    # Set up the four subplots
+    ax_p = axs[0, 0]  # Policy Loss (top-left)
+    ax_v = axs[0, 1]  # Value Loss (top-right)
+    ax_r = axs[1, 0]  # Total Reward (bottom-left)
+    ax_var = axs[1, 1]  # Reward Variance (bottom-right)
+    
+    # Create lines for each subplot
+    line_p, = ax_p.plot([], [], label="Policy Loss")
+    ax_p.set_title("Policy Loss")
+    ax_p.set_ylabel("Loss")
+    ax_p.legend()
+
+    line_v, = ax_v.plot([], [], label="Value Loss")
+    ax_v.set_title("Value Loss")
+    ax_v.set_ylabel("Loss")
+    ax_v.legend()
+    
+    line_r, = ax_r.plot([], [], label="Total Reward", color='green')
+    ax_r.set_title("Total Reward")
+    ax_r.set_ylabel("Reward")
+    ax_r.set_xlabel("Update Step")
+    ax_r.legend()
+    
+    line_var, = ax_var.plot([], [], label="Reward Variance", color='orange')
+    ax_var.set_title("Reward Variance Across Agents")
+    ax_var.set_ylabel("Variance")
+    ax_var.set_xlabel("Update Step")
+    ax_var.legend()
+    
+    # Adjust layout
+    plt.tight_layout()
+
+    mp.set_start_method('spawn', force=True)
     parser = argparse.ArgumentParser(description="Train PPO on Cleanup environment")
     
     # Add the arguments as per the provided command-line options
@@ -245,9 +312,6 @@ def main():
     
     args = parser.parse_args()
     
-    # Parse the stop condition to get total timesteps
-    # Expected format: "timesteps_total$((500*10**6))"
-    
     # Parse learning rate schedule
     lr_schedule = parse_lr_schedule(args.lr_schedule_steps, args.lr_schedule_weights)
     args.lr = lr_schedule[0][1]  # Initial learning rate
@@ -260,19 +324,11 @@ def main():
     
     # Create temporary environment to get observation and action spaces
     temp_env = make_cleanup_env(render_mode=None, num_agents=args.num_agents)
-
-    reset_result = temp_env.reset()
-    #print(f"Debug: temp_env.reset() returned {reset_result}")
-
     obs, _ = temp_env.reset()
     
     # Get observation shape from the first agent's observation
     first_agent_id = list(obs.keys())[0]
     observation_shape = obs[first_agent_id].shape
-
-    #print(f"Debug: Observation shape for agent {first_agent_id}: {observation_shape}")
-    #input()
-
     num_actions = temp_env.action_space(first_agent_id).n
     temp_env.close()
     
@@ -305,7 +361,7 @@ def main():
                     for param_group in agent.optimizer.param_groups:
                         param_group['lr'] = lr
                 break
-        
+        print("finish update learning rate")
         # Collect rollouts in parallel
         manager = mp.Manager()
         return_dict = manager.dict()
@@ -316,6 +372,8 @@ def main():
             p.start()
             processes.append(p)
         
+        print("finish start process")
+
         for p in processes:
             p.join()
         
@@ -324,6 +382,8 @@ def main():
                 print(f"Worker {rank} failed or did not return results. Check logs for details.")
                 continue  # Skip this worker
         
+        print("finish join process")
+
         # Combine rollouts from all workers
         combined_rollouts = defaultdict(lambda: defaultdict(list))
         
@@ -333,14 +393,37 @@ def main():
                 for key, value in agent_rollouts.items():
                     combined_rollouts[agent_id][key].extend(value)
         
+        print("finish combine rollouts")
+
         # Convert lists to numpy arrays
         for agent_id in combined_rollouts:
             for key in combined_rollouts[agent_id]:
                 combined_rollouts[agent_id][key] = np.array(combined_rollouts[agent_id][key])
         
+        print("finish convert to numpy arrays")
+        
+        # Calculate total reward and reward variance across agents
+        # First, compute the mean reward for each agent
+        agent_mean_rewards = {}
+        for agent_id, agent_data in combined_rollouts.items():
+            agent_mean_rewards[agent_id] = np.mean(agent_data["rewards"])
+        
+        # Calculate total reward (sum of all agent means)
+        total_reward = sum(agent_mean_rewards.values())
+        total_rewards.append(total_reward)
+        
+        # Calculate variance across agents
+        if len(agent_mean_rewards) > 1:
+            reward_variance = np.var(list(agent_mean_rewards.values()))
+        else:
+            reward_variance = 0.0
+        reward_variances.append(reward_variance)
+        
         # Update policy
         update_metrics = policy.update(combined_rollouts)
         
+        print("finish update policy")
+
         # Update step count
         steps_this_update = sum(len(combined_rollouts[agent_id]["rewards"]) for agent_id in combined_rollouts)
         total_steps += steps_this_update
@@ -360,6 +443,8 @@ def main():
                       f"Policy Loss: {metrics['policy_loss']:.4f}, "
                       f"Value Loss: {metrics['value_loss']:.4f}, "
                       f"Entropy: {metrics['entropy']:.4f}")
+                print(f"Total Reward: {total_reward:.4f}, "
+                      f"Reward Variance: {reward_variance:.4f}")
             else:
                 # Print metrics for first agent only to avoid clutter
                 first_agent = list(update_metrics.keys())[0]
@@ -368,14 +453,48 @@ def main():
                       f"Policy Loss: {metrics['policy_loss']:.4f}, "
                       f"Value Loss: {metrics['value_loss']:.4f}, "
                       f"Entropy: {metrics['entropy']:.4f}")
+                print(f"Total Reward: {total_reward:.4f}, "
+                      f"Reward Variance: {reward_variance:.4f}")
+            
+            # Append metrics to lists
+            policy_losses.append(metrics["policy_loss"])
+            value_losses.append(metrics["value_loss"])
+
+            # Update all plots
+            x = list(range(len(policy_losses)))
+            
+            # Update Policy Loss plot
+            line_p.set_data(x, policy_losses)
+            ax_p.relim()
+            ax_p.autoscale_view()
+            
+            # Update Value Loss plot
+            line_v.set_data(x, value_losses)
+            ax_v.relim()
+            ax_v.autoscale_view()
+            
+            # Update Total Reward plot
+            line_r.set_data(x, total_rewards)
+            ax_r.relim()
+            ax_r.autoscale_view()
+            
+            # Update Reward Variance plot
+            line_var.set_data(x, reward_variances)
+            ax_var.relim()
+            ax_var.autoscale_view()
+            
+            # Redraw figure
+            fig.canvas.draw()
+            fig.canvas.flush_events()
         
         # Save checkpoint
         checkpoint_dir = os.path.join(args.output_dir, f"checkpoint_{total_steps}")
         os.makedirs(checkpoint_dir, exist_ok=True)
         policy.save(os.path.join(checkpoint_dir, "model"))
         
-        # Save latest checkpoint
+        # Save latest checkpoint and plot figure
         policy.save(os.path.join(args.output_dir, "model_latest"))
+        fig.savefig(os.path.join(args.output_dir, "training_metrics.png"))
 
 if __name__ == "__main__":
     main()

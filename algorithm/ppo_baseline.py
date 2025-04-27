@@ -290,6 +290,7 @@ class PPOBaseline:
             for agent_id, agent in self.agents.items():
                 if agent_id in rollouts_by_agent:
                     metrics[agent_id] = agent.update(rollouts_by_agent[agent_id])
+        print(metrics)
         
         return metrics
     
