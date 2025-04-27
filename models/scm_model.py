@@ -5,9 +5,9 @@ import torch.nn.functional as F
 import gymnasium as gym
 from typing import Dict, Tuple, List, Optional
 
-from common_layers import build_conv_layers, build_fc_layers, get_activation_fn, normc_initializer
-from moa_model import MOAModel # Inherit from MOA
-from baseline_model import PermuteChannels, NormalizeUint8 # Reuse preprocessors
+from models.common_layers import build_conv_layers, build_fc_layers, get_activation_fn #,normc_initializer
+from models.moa_model import MOAModel # Inherit from MOA
+from models.baseline_model import PermuteChannels, NormalizeUint8 # Reuse preprocessors
 
 class SCMEncoder(nn.Module):
     """Encoder specifically for the SCM module."""
