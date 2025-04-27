@@ -243,6 +243,7 @@ def main():
     os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
+
     # Initialize plots with a 2x2 grid instead of 1x2
     plt.ion()  # 打开交互模式
     fig, axs = plt.subplots(2, 2, figsize=(12, 10))
@@ -261,6 +262,7 @@ def main():
     ax_var = axs[1, 1]  # Reward Variance (bottom-right)
     
     # Create lines for each subplot
+
     line_p, = ax_p.plot([], [], label="Policy Loss")
     ax_p.set_title("Policy Loss")
     ax_p.set_ylabel("Loss")
