@@ -5,10 +5,10 @@ import torch.nn.functional as F
 import gymnasium as gym
 from typing import Dict, Tuple, List, Optional
 
-from common_layers import build_conv_layers, build_fc_layers
-from actor_critic_lstm import ActorCriticLSTM
-from moa_lstm import MoaLSTM
-from baseline_model import PermuteChannels, NormalizeUint8 # Reuse preprocessors
+from models.common_layers import build_conv_layers, build_fc_layers
+from models.actor_critic_lstm import ActorCriticLSTM
+from models.moa_lstm import MoaLSTM
+from models.baseline_model import PermuteChannels, NormalizeUint8 # Reuse preprocessors
 
 
 # Helper function for KL divergence (adapted from original repo)
