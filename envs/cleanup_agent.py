@@ -32,6 +32,7 @@ class CleanupAgent:
 
         # State managed by environment, but agent might track rewards internally if needed
         self.reward_this_turn = 0.0
+        self.cumulative_reward = 0.0
 
         # Required by PettingZoo API (though often managed by env)
         self.terminated = False
@@ -72,6 +73,16 @@ class CleanupAgent:
         self.reward_this_turn = 0.0
         return reward
 
+    # Methods for cumulative reward ---
+    def add_cumulative_reward(self, reward: float):
+        """Adds the reward from the current step to the cumulative total."""
+        self.cumulative_reward += reward
+
+    def get_cumulative_reward(self) -> float:
+        """Returns the total cumulative reward collected by the agent."""
+        return self.cumulative_reward
+
+
     def set_terminated(self, terminated: bool = True):
         """Sets the terminated status."""
         self.terminated = terminated
@@ -85,5 +96,6 @@ class CleanupAgent:
         self.pos = np.array(start_pos, dtype=int)
         self.orientation = start_orientation
         self.reward_this_turn = 0.0
+        self.cumulative_reward = 0.0
         self.terminated = False
         self.truncated = False

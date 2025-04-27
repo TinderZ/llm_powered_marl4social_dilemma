@@ -41,16 +41,17 @@ class CleanupEnv(ParallelEnv):
 
     def __init__(
         self,
-        num_agents: int = 2,
+        num_agents: int = 5,
         render_mode: str | None = None,
         max_cycles: int = 1000,
-        use_collective_reward: bool = False, # Not implemented in detail from original, but kept as option
+        use_collective_reward: bool = False,  # Not implemented in detail from original, but kept as option
         inequity_averse_reward: bool = False, # Not implemented in detail from original, but kept as option
         alpha: float = 0.0,                   # Parameter for IAR
         beta: float = 0.0,                    # Parameter for IAR
 
         use_llm: bool = False,                # Enable/disable LLM features
-        llm_f_step: int = 50                  # Frequency of LLM updates
+        llm_f_step: int = 50,                 # Frequency of LLM calling
+        llm_type: str = "rule-based"          # Type of LLM to use
     ):
         """
         Initializes the Cleanup environment.
@@ -74,12 +75,7 @@ class CleanupEnv(ParallelEnv):
         if num_agents > len(AGENT_CHARS):
              raise ValueError(f"Maximum number of agents is {len(AGENT_CHARS)}")
 
-        # --- 修改开始 ---
-        # 首先定义 possible_agents
         self.possible_agents = [f"agent_{i}" for i in range(num_agents)]
-        # num_agents 属性将从 len(self.possible_agents) 自动获取，移除下面这行
-        # self.num_agents = num_agents # <--- 删除或注释掉这一行
-        # --- 修改结束 ---
 
         self.agent_id_map = {i: f"agent_{i}" for i in range(num_agents)}
         self.render_mode = render_mode
@@ -94,6 +90,7 @@ class CleanupEnv(ParallelEnv):
         # LLM-related attributes
         self.use_llm = use_llm 
         self.llm_f_step = llm_f_step
+        self.llm_type = llm_type
         self.llm_modules: dict[str, LLMModule] = {}
         self.llm_commands: dict[str, str | None] = {} # Store current command per agent
         if self.use_llm:
@@ -277,9 +274,6 @@ class CleanupEnv(ParallelEnv):
                 self._update_map_tile(pos[0], pos[1], EMPTY)
 
         # 4. Handle Special Actions (Firing/Cleaning Beams) in random order
-        # <--- 修改: 使用 agents_at_step_start 进行洗牌 --->
-        # shuffled_agent_ids = list(agents_at_step_start)
-        # random.shuffle(shuffled_agent_ids)   # <--- 带来了随机性
         beam_updates = [] # Store tile changes from beams
 
         for agent_id in agents_at_step_start: #shuffled_agent_ids:  无随机性
@@ -314,19 +308,23 @@ class CleanupEnv(ParallelEnv):
             self._update_map_tile(r, c, char)
 
         # 6. Calculate Rewards and Termination/Truncation
-        # <--- 修改: 基于 agents_at_step_start 初始化状态字典 --->
+        # 基于 agents_at_step_start 初始化状态字典 
         terminations = {agent_id: False for agent_id in agents_at_step_start}
         truncations = {agent_id: False for agent_id in agents_at_step_start}
         infos = {agent_id: {} for agent_id in agents_at_step_start}
         
         # Get rewards accumulated by agents
+        
         for agent_id in agents_at_step_start:
             # if agent_id in self._agents: # Ensure agent is still active
             agent = self._agents.get(agent_id)
             if agent:  # Check if agent exists before consuming reward
                 rewards[agent_id] += agent.consume_reward() # Add rewards from hits/consumption
+                agent.add_cumulative_reward(rewards[agent_id]) # Update cumulative apple/hit reward
+                
             else:
                 print(f"Warning: Agent {agent_id} not found in self._agents.")
+
 
         # Apply collective/IAR rewards if enabled (Simplified - full IAR needs careful implementation)
         # collective reeward, inequity penalty
@@ -366,34 +364,26 @@ class CleanupEnv(ParallelEnv):
             if waste_density >= THRESHOLD_DEPLETION:
                 game_info = "River severely polluted, apples cannot grow."
             elif waste_density <= THRESHOLD_RESTORATION:
-                    game_info = "River is clean, apples can grow well."
+                game_info = "River is clean, apples can grow well."
             else:
                 # More nuanced info could be added here
                 game_info = f"River pollution level moderate (density: {waste_density:.2f})."
 
             # 2. Process Info and Get Commands for each agent active at step start
-            #llm_outputs_this_step = {}
+            agents_cumulative_rewards = {
+                 agent_id: self._agents[agent_id].get_cumulative_reward()
+                 for agent_id in agents_at_step_start #if agent_id in self._agents
+            }
+
             for agent_id in agents_at_step_start:
                 if agent_id in self.llm_modules:
-                    command = self.llm_modules[agent_id].process_game_info(game_info)
+                    command = self.llm_modules[agent_id].process_game_info(game_info, self.llm_type, agents_cumulative_rewards)
                     self.llm_commands[agent_id] = command
                     #llm_outputs_this_step[agent_id] = command
                 else:
                     # Handle case where agent might not have an LLM module? Default to None.
                     self.llm_commands[agent_id] = None
                     #llm_outputs_this_step[agent_id] = None
-
-
-            # 3. TODO: Implement LLM Discussion
-            # This is where agents' LLMs could communicate based on llm_outputs_this_step
-            # For now, we just store the individual commands.
-            # Example placeholder:
-            # for agent_id in agents_at_step_start:
-            #     if agent_id in self.llm_modules:
-            #         # Pass outputs from others (excluding self)
-            #         other_outputs = {k:v for k, v in llm_outputs_this_step.items() if k != agent_id}
-            #         self.llm_modules[agent_id].discuss(other_outputs)
-            #         # Discussion might modify self.llm_commands[agent_id]
                 
         
         # 8. Generate observations for all agents active at the start of the step
@@ -417,7 +407,6 @@ class CleanupEnv(ParallelEnv):
                 #       # Skipping for now.
                 #       pass
 
-
         # --- Modification Start: Update self.agents list based on term/trunc flags ---
         # Determine the agents who will be active in the *next* step
         next_agents = []
@@ -436,9 +425,6 @@ class CleanupEnv(ParallelEnv):
         # (Observations dict is already handled. Rewards/Terms/Truncs/Infos were initialized based on it)
 
         return observations, rewards, terminations, truncations, infos
-
-
-
 
 
 
@@ -522,7 +508,6 @@ class CleanupEnv(ParallelEnv):
         return rgb_map
 
 
-# --- New Masking Map Functions ---
     def _map_to_colors_mask_apple(self) -> np.ndarray:
         """Generates RGB map masking Apples ('A') as Grass ('B')."""
         map_with_agents = self._get_map_with_agents()
@@ -552,8 +537,6 @@ class CleanupEnv(ParallelEnv):
                 else:
                     rgb_map[r, c, :] = DEFAULT_COLOURS.get(char, DEFAULT_COLOURS[b' '])
         return rgb_map
-    # --- End New Masking Map Functions ---
-
 
 
     def _get_agent_view(self, agent: CleanupAgent, full_rgb_map: np.ndarray) -> np.ndarray:
