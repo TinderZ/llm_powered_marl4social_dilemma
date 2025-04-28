@@ -739,48 +739,61 @@ class CleanupEnv(ParallelEnv):
         # We'll start the beam from the cell directly in front.
         
         updates = [] # List of (row, col, new_char) for map updates
-        current_pos = start_pos + firing_direction
+
+        # current_pos = start_pos + firing_direction
+
+        if beam_width == 3:
+            if orientation == "UP" or orientation == "DOWN":
+                init_pos_all = {start_pos, start_pos + [0, 1], start_pos + [0, -1]}
+            elif orientation == "RIGHT" or orientation == "LEFT":
+                init_pos_all = {start_pos, start_pos + [1, 0], start_pos + [-1, 0]}
+        elif beam_width == 1:
+            init_pos_all = {start_pos}
 
         agent_positions = {tuple(agent.get_pos()): agent_id for agent_id, agent in self._agents.items()}
 
-        for _ in range(length):
-            if not self._is_position_valid(current_pos):
-                break # Hit map boundary
+        for pos in init_pos_all:
+            current_pos = pos
+            affect_num = 2
+            for _ in range(length):
+                # Move beam forward
+                current_pos += firing_direction
+                if not self._is_position_valid(current_pos):
+                    break # Hit map boundary
 
-            row, col = current_pos[0], current_pos[1]
-            tile_char = self.world_map[row, col]
+                row, col = current_pos[0], current_pos[1]
+                tile_char = self.world_map[row, col]
 
-            # Add beam to render list
-            self.beam_pos.append((row, col, beam_char))
+                # Add beam to render list
+                self.beam_pos.append((row, col, beam_char))
 
-            # Check if beam hits an agent
-            if tuple(current_pos) in agent_positions:
-                hit_agent_id = agent_positions[tuple(current_pos)]
-                if beam_char == PENALTY_BEAM:
-                    self._agents[hit_agent_id].add_reward(-PENALTY_HIT)
-                # Beam stops when hitting an agent
-                break
+                # Check if beam hits an agent
+                if tuple(current_pos) in agent_positions:  
+                    hit_agent_id = agent_positions[tuple(current_pos)]
+                    if beam_char == PENALTY_BEAM:  # 说明是fire 不是clean
+                        self._agents[hit_agent_id].add_reward(-PENALTY_HIT)
+                    # Beam stops when hitting an agent
+                    break
 
-            # Check if the tile blocks the beam
-            if tile_char in blocking_cells:
-                break # Beam stops
+                # Check if the tile blocks the beam
+                if tile_char in blocking_cells:
+                    break # Beam stops by wall
 
-            # Check if the tile is affected by the beam (e.g., cleaning waste)
-            if tile_char in cell_types:
-                try:
-                    type_index = cell_types.index(tile_char)
-                    new_char = update_char[type_index]
-                    updates.append((row, col, new_char)) # Record the change needed
-                    # If cleaning waste, the beam might stop or continue based on rules
-                    # Original 'CLEAN' had blocking_cells=[b'H'], so it stops here.
-                    if beam_char == CLEAN_BEAM and tile_char == WASTE:
-                         break
-                except (ValueError, IndexError):
-                     # Should not happen if cell_types and update_char match
-                     pass
+                # Check if the tile is affected by the beam (e.g., cleaning waste)
+                if tile_char in cell_types:
+                    try:
+                        type_index = cell_types.index(tile_char)
+                        new_char = update_char[type_index]
+                        affect_num -= 1
+                        updates.append((row, col, new_char)) # Record the change needed
+                        # If cleaning waste, the beam might stop or continue based on rules
+                        # Original 'CLEAN' had blocking_cells=[b'H'], so it stops here.
+                        if beam_char == CLEAN_BEAM and tile_char == WASTE and affect_num == 0:
+                            break
+                    except (ValueError, IndexError):
+                        # Should not happen if cell_types and update_char match
+                        pass
 
-            # Move beam forward
-            current_pos += firing_direction
 
         return updates
 

@@ -28,7 +28,7 @@ CLEANUP_MAP = [
     "@RRRRR       BBBB@",
     "@HHHH       BBBBB@",
     "@@@@@@@@@@@@@@@@@@",
-] 
+]  # 23 *  16
 
 # 智能体动作映射 (Agent Action Mapping)
 # 0: left, 1: right, 2: up, 3: down, 4: stay
@@ -114,10 +114,11 @@ DEFAULT_COLOURS = {
 
 # Cleanup 环境特定参数 (Cleanup Environment Specific Parameters)
 CLEANUP_VIEW_SIZE = 7  # Agent's view range (original was 7x7)
-FIRE_BEAM_LENGTH = 5
-CLEAN_BEAM_LENGTH = 5 # Original used FIRE length for clean beam logic
-FIRE_BEAM_WIDTH = 1   # Original `update_map_fire` used width 3 default, but cleanup/switch override to 1
-CLEAN_BEAM_WIDTH = 1  # Assuming same width for cleaning
+
+FIRE_BEAM_LENGTH = 4
+CLEAN_BEAM_LENGTH = 4 # 
+FIRE_BEAM_WIDTH = 1   # 
+CLEAN_BEAM_WIDTH = 3  
 
 PENALTY_HIT = 50      # Penalty for being hit by a fire beam
 PENALTY_FIRE = 1      # Cost for firing a penalty beam
@@ -128,7 +129,7 @@ APPLE_REWARD = 1      # Reward for collecting an apple
 THRESHOLD_DEPLETION = 0.5
 THRESHOLD_RESTORATION = 0.0
 WASTE_SPAWN_PROBABILITY = 0.1
-APPLE_RESPAWN_PROBABILITY = 0.1
+APPLE_RESPAWN_PROBABILITY = 0.05
 
 # 地图字符 (Map Characters)
 WALL = b'@'
