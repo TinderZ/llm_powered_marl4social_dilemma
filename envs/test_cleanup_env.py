@@ -15,7 +15,7 @@ from constants import (ACTION_MEANING, APPLE, CLEANUP_MAP,
                      RIVER, WASTE, WALL, AGENT_START)
 
 from constants import (CLEAN_REWARD, APPLE_REWARD)
-from constants import (WALL, APPLE_SPAWN, WASTE_SPAWN, RIVER, STREAM)
+from constants import (WALL, APPLE_SPAWN, WASTE_INIT, RIVER, STREAM)
 from constants import (APPLE_RESPAWN_PROBABILITY, WASTE_SPAWN_PROBABILITY, THRESHOLD_DEPLETION, THRESHOLD_RESTORATION)
 
 # --- Helper Functions (adapted from original tests) ---
@@ -385,12 +385,12 @@ class TestCleanupEnv(unittest.TestCase):
         self.env.map_height, self.env.map_width = self.env.base_map.shape
         self.env.spawn_points = self.env._find_points(AGENT_START)
         self.env.apple_spawn_points = self.env._find_points(APPLE_SPAWN)
-        self.env.waste_spawn_points = self.env._find_points(WASTE_SPAWN)
+        self.env.waste_init_points = self.env._find_points(WASTE_INIT)
         self.env.river_points = self.env._find_points(RIVER)
         self.env.stream_points = self.env._find_points(STREAM)
         self.env.wall_points = self.env._find_points(WALL)
-        self.env.potential_waste_area = len(self.env.waste_spawn_points) + len(self.env.river_points)
-        self.env.waste_points = self.env.waste_spawn_points + self.env.river_points
+        self.env.potential_waste_area = len(self.env.waste_init_points) + len(self.env.river_points)
+        self.env.waste_spawn_points = self.env.waste_init_points + self.env.river_points
         # --- End of added lines ---
         self.env.reset(seed=66)
 
@@ -514,7 +514,7 @@ class TestCleanupEnv(unittest.TestCase):
         # Fill most of the potential area with waste
         waste_count_target = int(total_potential_area * 0.6) # e.g., 60%
         current_waste = 0
-        for r,c in self.env.waste_points:
+        for r,c in self.env.waste_spawn_points:
             if current_waste < waste_count_target:
                 self._set_tile(r,c, WASTE)
                 current_waste += 1
@@ -529,7 +529,7 @@ class TestCleanupEnv(unittest.TestCase):
         # --- Scenario 2: Low Waste (at or below restoration threshold) ---
         # Clear almost all waste
         waste_count_target = 0
-        for r,c in self.env.waste_points:
+        for r,c in self.env.waste_spawn_points:
             if self._get_tile(r,c) == WASTE:
                  self._set_tile(r,c, EMPTY) # Clear it
 
@@ -542,7 +542,7 @@ class TestCleanupEnv(unittest.TestCase):
         # Set waste level between thresholds (e.g., 20%)
         waste_count_target = int(total_potential_area * 0.2)
         current_waste = 0
-        for r,c in self.env.waste_points:
+        for r,c in self.env.waste_spawn_points:
              if current_waste < waste_count_target:
                  # Ensure tile exists before setting
                  if self.env.world_map[r,c] != WALL: # Avoid walls if they overlap waste points

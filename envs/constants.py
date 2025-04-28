@@ -20,15 +20,15 @@ CLEANUP_MAP = [
     "@RRRRR       BBBB@",
     "@HHHH    P  BBBBB@",
     "@RRRRR       BBBB@",
-    "@HHHHH  P P BBBBB@",
+    "@HHHHH  P   BBBBB@",
     "@RRRRR       BBBB@",
     "@HHHH       BBBBB@",
-    "@RRRRR       BBBB@",
+    "@RRRRR   P   BBBB@",
     "@HHHHH      BBBBB@",
     "@RRRRR       BBBB@",
     "@HHHH       BBBBB@",
     "@@@@@@@@@@@@@@@@@@",
-]
+] 
 
 # 智能体动作映射 (Agent Action Mapping)
 # 0: left, 1: right, 2: up, 3: down, 4: stay
@@ -97,7 +97,7 @@ DEFAULT_COLOURS = {
     # Default agent colors (can be extended)
     b'1': np.array([0, 0, 255], dtype=np.uint8),        # Blue
     b'2': np.array([254, 151, 0], dtype=np.uint8),      # Orange
-    b'3': np.array([216, 30, 54], dtype=np.uint8),       # Red
+    b'3': np.array([190, 30, 54], dtype=np.uint8),       # Red
     b'4': np.array([204, 0, 204], dtype=np.uint8),      # Magenta
     b'5': np.array([238, 223, 16], dtype=np.uint8),      # Yellow
     b'6': np.array([100, 255, 255], dtype=np.uint8),     # Cyan
@@ -125,16 +125,16 @@ CLEAN_REWARD = 0      # Reward/cost for firing a cleaning beam (original was 0)
 APPLE_REWARD = 1      # Reward for collecting an apple
 
 # 概率和阈值 (Probabilities and Thresholds)
-THRESHOLD_DEPLETION = 0.4
+THRESHOLD_DEPLETION = 0.5
 THRESHOLD_RESTORATION = 0.0
-WASTE_SPAWN_PROBABILITY = 0.5
-APPLE_RESPAWN_PROBABILITY = 0.05
+WASTE_SPAWN_PROBABILITY = 0.1
+APPLE_RESPAWN_PROBABILITY = 0.1
 
 # 地图字符 (Map Characters)
 WALL = b'@'
 AGENT_START = b'P'
-APPLE_SPAWN = b'B'
-WASTE_SPAWN = b'H'  # Initial waste
+APPLE_SPAWN = b'B'  # grass
+WASTE_INIT = b'H'   # Initial waste
 RIVER = b'R'        # River tiles (can also hold waste)
 STREAM = b'S'       # Stream tiles
 

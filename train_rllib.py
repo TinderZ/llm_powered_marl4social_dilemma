@@ -7,38 +7,236 @@ import pytz
 
 import ray
 from ray import tune
+from ray.rllib.env.wrappers.pettingzoo_env import PettingZooEnv
 from ray.tune.registry import register_env
 from ray.rllib.models import ModelCatalog
 from ray.rllib.algorithms.ppo import PPOConfig # Using PPO directly
+from ray.rllib.policy.policy import PolicySpec # <--- 新增导入
+
+# Add near the top with other imports
+import matplotlib.pyplot as plt
+import numpy as np
+from collections import defaultdict
+import time # Optional for smoother plotting in some backends
+from ray.tune.callback import Callback
+# import threading # To handle plotting in a separate thread potentially
+import matplotlib
+matplotlib.use('Agg') # Use Agg backend for non-interactive plotting
 
 # --- Import your refactored environment and model ---
 # Assuming PettingZoo AEC interface for the environment creator
 from envs.cleanup_env import env as cleanup_env_creator
 # Import other env creators if needed (e.g., harvest)
-
 # Import your refactored model(s)
 from models.baseline_model import BaselineModel
 # from models.moa_model import MOAModel  # Example if extending
 # from models.scm_model import SocialCuriosityModule # Example if extending
 
 
+
+class PlottingCallback(Callback):
+    """
+    A Tune Callback that plots agent metrics (loss, reward, reward variance)
+    during training and saves the plot periodically.
+    """
+    def __init__(self, num_agents, plot_freq=5, save_path="training_metrics.png"):
+        super().__init__()
+        self.num_agents = num_agents
+        self.plot_freq = plot_freq # Plot every N iterations
+        # self.save_path = save_path
+        self._iter = 0
+
+        # Data storage: dictionary mapping agent_id to list of metrics
+        self.policy_loss = defaultdict(list)
+        self.mean_reward = defaultdict(list) # Use mean reward as proxy for total
+        self.reward_variance = defaultdict(list) # Store overall variance here for simplicity
+        self.timesteps = [] # Shared x-axis
+
+        # Plotting setup (run in main thread initially)
+        self._setup_plot()
+        # self._lock = threading.Lock() # Lock for thread safety if needed
+
+    def _setup_plot(self):
+        """Initialize the Matplotlib figure and axes."""
+        # plt.ion() # Turn on interactive mode if needed, but Agg backend is better for saving
+        self.fig, self.axes = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
+        self.fig.suptitle("Agent Training Metrics")
+
+        self.axes[0].set_ylabel("Mean Policy Loss")
+        self.axes[1].set_ylabel("Mean Episode Reward")
+        self.axes[2].set_ylabel("Episode Reward Variance (Overall)")
+        self.axes[2].set_xlabel("Training Timesteps")
+
+        # Initial empty plot lines for legends
+        self.lines_loss = {}
+        self.lines_reward = {}
+        self.line_variance = None # Only one line for overall variance
+
+        agent_ids = [f"agent_{i}" for i in range(self.num_agents)]
+        colors = plt.cm.viridis(np.linspace(0, 1, self.num_agents)) # Use a colormap
+
+        for i, agent_id in enumerate(agent_ids):
+            self.lines_loss[agent_id], = self.axes[0].plot([], [], label=f"{agent_id} Loss", color=colors[i])
+            self.lines_reward[agent_id], = self.axes[1].plot([], [], label=f"{agent_id} Reward", color=colors[i])
+
+        # Use a single line for overall reward variance across all agents
+        self.line_variance, = self.axes[2].plot([], [], label="Overall Reward Variance", color='red')
+
+        self.axes[0].legend(loc='upper right')
+        self.axes[1].legend(loc='lower right')
+        self.axes[2].legend(loc='upper right')
+        self.fig.tight_layout(rect=[0, 0.03, 1, 0.97]) # Adjust layout to prevent title overlap
+
+
+    def on_trial_result(self, iteration: int, trials: list, trial: "Trial", result: dict, **info):
+        """Called after each training iteration for a trial."""
+        self._iter += 1
+        if self._iter % self.plot_freq != 0:
+            return # Only plot every N iterations
+        
+        if not trial.logdir:
+             # Should not happen typically after trial starts, but check just in case
+             print(f"PlottingCallback: Warning - trial.logdir not available in iteration {self._iter}. Skipping plot save.")
+             return
+        # Define the filename within the trial directory
+        save_path = os.path.join(trial.logdir, "training_metrics.png") # <-- DYNAMIC PATH
+
+
+        current_timesteps = result.get("timesteps_total", self._iter) # Use timesteps if available
+        self.timesteps.append(current_timesteps)
+
+        # --- Data Extraction ---
+        # Policy Loss (handle potential variations in result structure)
+        policy_losses_found = False
+        if "info" in result and "learner" in result["info"]:
+            for agent_id, policy_info in result["info"]["learner"].items():
+                 # Check if agent_id matches expected format and learner_stats exists
+                if agent_id.startswith("agent_") and "learner_stats" in policy_info:
+                    loss = policy_info["learner_stats"].get("policy_loss")
+                    if loss is not None:
+                         self.policy_loss[agent_id].append(loss)
+                         policy_losses_found = True
+                    else:
+                         # Append NaN or previous value if loss is missing for this step
+                         self.policy_loss[agent_id].append(self.policy_loss[agent_id][-1] if self.policy_loss[agent_id] else np.nan)
+
+        # Fallback or if structure is different (might be aggregated)
+        if not policy_losses_found and "policy_loss" in result:
+             # This is likely aggregated, plot the same for all agents
+             agg_loss = result["policy_loss"]
+             for i in range(self.num_agents):
+                agent_id = f"agent_{i}"
+                self.policy_loss[agent_id].append(agg_loss)
+
+
+        # Mean Episode Reward per Policy
+        rewards_found = False
+        if "policy_reward_mean" in result and isinstance(result["policy_reward_mean"], dict):
+            for agent_id, reward in result["policy_reward_mean"].items():
+                if agent_id.startswith("agent_"):
+                    self.mean_reward[agent_id].append(reward)
+                    rewards_found = True
+            # Fill missing agents for this step if needed
+            for i in range(self.num_agents):
+                agent_id = f"agent_{i}"
+                if agent_id not in result["policy_reward_mean"]:
+                    self.mean_reward[agent_id].append(self.mean_reward[agent_id][-1] if self.mean_reward[agent_id] else np.nan)
+
+        # Fallback using overall mean reward
+        if not rewards_found and "episode_reward_mean" in result:
+            agg_reward = result["episode_reward_mean"]
+            for i in range(self.num_agents):
+                agent_id = f"agent_{i}"
+                self.mean_reward[agent_id].append(agg_reward)
+
+
+        # Reward Variance (using overall episode rewards)
+        variance = np.nan # Default to NaN
+        if "hist_stats" in result and "episode_reward" in result["hist_stats"]:
+            episode_rewards = result["hist_stats"]["episode_reward"]
+            if len(episode_rewards) > 1: # Need at least 2 points for variance
+                variance = np.var(episode_rewards)
+        # Append the same overall variance to the shared list
+        self.reward_variance["overall"].append(variance)
+
+
+        # --- Update Plot ---
+        # Use lock for potential threading issues, though Agg backend might avoid them
+        agent_ids = [f"agent_{i}" for i in range(self.num_agents)]
+        min_len = len(self.timesteps) # Ensure all data lists match length of x-axis
+
+        for agent_id in agent_ids:
+            # Pad data if necessary (e.g., if an agent's data was missing initially)
+            while len(self.policy_loss[agent_id]) < min_len:
+                self.policy_loss[agent_id].insert(0, np.nan) # Pad start
+            while len(self.mean_reward[agent_id]) < min_len:
+                self.mean_reward[agent_id].insert(0, np.nan) # Pad start
+
+            # Update plot data if lines exist
+            if agent_id in self.lines_loss:
+                self.lines_loss[agent_id].set_data(self.timesteps, self.policy_loss[agent_id][-min_len:])
+            if agent_id in self.lines_reward:
+                self.lines_reward[agent_id].set_data(self.timesteps, self.mean_reward[agent_id][-min_len:])
+
+        # Update overall variance plot data
+        while len(self.reward_variance["overall"]) < min_len:
+            self.reward_variance["overall"].insert(0, np.nan)
+        # Update variance line if it exists
+        if self.line_variance:
+            self.line_variance.set_data(self.timesteps, self.reward_variance["overall"][-min_len:])
+        # Rescale axes
+        for ax in self.axes:
+            ax.relim()
+            ax.autoscale_view(True, True, True)
+
+        # Redraw and save
+        try:
+            self.fig.canvas.draw_idle() # Request redraw
+            self.fig.savefig(save_path) # <-- Use the dynamic save_path
+            # print(f"PlottingCallback: Saved plot to {save_path}") # Optional: for debugging
+        except Exception as e:
+             # Log error but don't crash the whole training run
+             print(f"PlottingCallback: Failed to save plot to {save_path}: {e}")
+    # plt.pause(0.01) # Small pause might be needed for some backends/interactive use
+
+            # plt.pause(0.01) # Small pause might be needed for some backends/interactive use
+
+    # Optional: Close plot when trial ends or experiment finishes
+    # def on_trial_complete(self, iteration: int, trials: list, trial: "Trial", **info):
+    #     self.close_plot()
+
+    # def on_experiment_end(self, trials: list, **info):
+    #     self.close_plot()
+
+    def close_plot(self):
+         with self._lock:
+            if hasattr(self, 'fig') and self.fig:
+                plt.close(self.fig)
+                self.fig = None
+                self.axes = None
+                # plt.ioff() # Turn off interactive mode if it was turned on
+
+
+
+
 # --- Environment Registration ---
 # It's common to register environments here before Tune runs.
 def env_creator(env_config):
-    env_name = env_config.get("env_name", "cleanup") # Default to cleanup
+    env_name = env_config.get("env_name", "cleanup")
     num_agents = env_config.get("num_agents", 2)
-    # Add other env-specific configs if needed
-    # use_llm = env_config.get("use_llm", False)
-    # llm_f_step = env_config.get("llm_f_step", 50)
+    # ... other env args ...
 
     if env_name == "cleanup":
-        # Pass num_agents and potentially other config to your creator
-        return cleanup_env_creator(num_agents=num_agents) #, use_llm=use_llm, llm_f_step=llm_f_step)
+        # Create the PettingZoo AEC environment first
+        aec_env = cleanup_env_creator(num_agents=num_agents) # , use_llm=use_llm, etc.
+        # Wrap it with RLlib's wrapper
+        rllib_multi_agent_env = PettingZooEnv(aec_env)
+        return rllib_multi_agent_env
     # elif env_name == "harvest":
-        # return harvest_env_creator(num_agents=num_agents)
+        # aec_env = harvest_aec_creator(num_agents=num_agents)
+        # return PettingZooEnv(aec_env)
     else:
         raise ValueError(f"Unknown environment name: {env_name}")
-
 # Register the environment creator function under a unique name
 ENV_NAME_REGISTERED = "ssd_cleanup_v1" # Or make this dynamic based on args.env
 register_env(ENV_NAME_REGISTERED, env_creator)
@@ -148,6 +346,20 @@ def main(args):
         # Connect to existing cluster or start new one
         ray.init(address=os.environ.get("RAY_ADDRESS", None)) # Assumes RAY_ADDRESS is set for clusters
 
+
+    temp_env_config = {
+        "env_name": args.env,
+        "num_agents": args.num_agents,
+        "use_llm": args.use_llm,
+        "llm_f_step": args.llm_f_step,
+    }
+    temp_env = env_creator(temp_env_config)
+    obs_space = temp_env.observation_space["agent_0"]
+    act_space = temp_env.action_space["agent_0"]
+    temp_env.close()
+
+
+    
     # --- Configure Algorithm ---
     if args.algorithm == "PPO":
         config = PPOConfig()
@@ -222,12 +434,27 @@ def main(args):
                  "use_lstm": False, # Let RLlib handle if model is nn.Module? See BaselineModel notes.
             },
         )
+        # .multi_agent(
+        #     # Assuming identical policies for all agents using the same model class
+        #     policies={f"agent_{i}" for i in range(args.num_agents)},
+        #      # Map agent_id "agent_0", "agent_1", etc. to policy_id "agent_0", "agent_1", etc.
+        #      # policy_mapping_fn=(lambda agent_id, episode, worker, **kwargs: f"agent_{agent_id.split('_')[-1]}"),
+        #     policy_mapping_fn=(lambda agent_id, *args, **kwargs: agent_id), # Simpler mapping if policy keys match agent ids
+        # )
         .multi_agent(
-            # Assuming identical policies for all agents using the same model class
-            policies={f"agent_{i}" for i in range(args.num_agents)},
-             # Map agent_id "agent_0", "agent_1", etc. to policy_id "agent_0", "agent_1", etc.
-             # policy_mapping_fn=(lambda agent_id, episode, worker, **kwargs: f"agent_{agent_id.split('_')[-1]}"),
-            policy_mapping_fn=(lambda agent_id, *args, **kwargs: agent_id), # Simpler mapping if policy keys match agent ids
+            policies={
+                f"agent_{i}": PolicySpec(
+                    policy_class=None,  # 让 RLlib 使用默认的 PPO TorchPolicy
+                    observation_space=obs_space, # 显式提供观察空间
+                    action_space=act_space,      # 显式提供动作空间
+                    # config 可以省略，让其继承顶层 config 的 model 设置
+                    # 或者如果需要为特定策略覆盖配置，可以在这里添加:
+                    # config={"model": {... specific overrides ...}}
+                )
+                for i in range(args.num_agents)
+            },
+            # 保持策略映射不变，将 agent_id 映射到对应的 policy_id
+            policy_mapping_fn=(lambda agent_id, *args, **kwargs: agent_id),
         )
         .resources(
             num_gpus=args.gpus_for_driver,
@@ -237,7 +464,7 @@ def main(args):
         )
          # Add evaluation config if needed
          #.evaluation(evaluation_interval=10, evaluation_num_workers=1)
-         .debugging(seed=args.seed if args.seed is not None else -1) # Set seed if provided
+         .debugging(seed=args.seed) # Set seed if provided, None otherwise # Set seed if provided
     )
 
 
@@ -260,8 +487,9 @@ def main(args):
     # experiment_full_name = f"{experiment_base_name}_{timestamp}"
     experiment_full_name = experiment_base_name # Keep it simple for now
 
-
-    storage_path = os.path.expanduser("~/ray_results") # Default Ray results directory
+    storage_path = os.path.expanduser("~/ray_results")
+    if not os.path.exists(storage_path):
+        os.makedirs(storage_path)
     if args.use_s3:
         # Ensure path ends with / for S3 uploads
         s3_prefix = args.s3_bucket_prefix
@@ -269,6 +497,12 @@ def main(args):
             s3_prefix += '/'
         storage_path = s3_prefix
 
+    plot_callback = PlottingCallback(
+        num_agents=args.num_agents,
+        plot_freq=5,  # Update plot every 5 training iterations (adjust as needed)
+        # save_path=os.path.join(os.path.expanduser("ray_results"), # Save in default results dir
+        #                         f"{experiment_full_name}_metrics.png") # Filename based on experiment
+    )
 
     # --- Setup Tune ---
     tuner = tune.Tuner(
@@ -283,6 +517,7 @@ def main(args):
                 checkpoint_at_end=True,
                 num_to_keep=3 # Keep last 3 checkpoints
             ),
+            callbacks=[plot_callback]
             # Add failure config if needed
             # failure_config=ray.air.FailureConfig(max_failures=-1), # Infinite retries
         ),
@@ -314,8 +549,18 @@ def main(args):
 
     print("Training finished.")
     best_result = results.get_best_result(metric="episode_reward_mean", mode="max")
-    print("Best trial config: {}".format(best_result.config))
-    print("Best trial final reward: {}".format(best_result.metrics["episode_reward_mean"]))
+
+    # --- 修改开始: 增加检查 ---
+    if best_result:
+        print("Best trial config: {}".format(best_result.config))
+        if best_result.metrics and "episode_reward_mean" in best_result.metrics:
+            print("Best trial final reward: {}".format(best_result.metrics["episode_reward_mean"]))
+        else:
+            print("Best trial found, but 'episode_reward_mean' metric is missing.")
+            print(f"All metrics for best trial: {best_result.metrics}")
+    else:
+        print("No best trial found (likely due to errors or no completed trials).")
+    # --- 修改结束 ---
 
     ray.shutdown()
 

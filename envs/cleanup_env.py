@@ -23,7 +23,7 @@ from envs.constants import (ACTION_MEANING, APPLE, APPLE_REWARD, APPLE_RESPAWN_P
                      ORIENTATIONS, ORIENTATION_VECTORS, PENALTY_BEAM, PENALTY_FIRE, PENALTY_HIT,
                      RIVER, ROTATION_MAP, SPECIAL_ACTIONS, STREAM, THRESHOLD_DEPLETION,
                      THRESHOLD_RESTORATION, TURN_ACTIONS, VIEW_PADDING, WALL, WASTE,
-                     WASTE_SPAWN, WASTE_SPAWN_PROBABILITY, AGENT_START)
+                     WASTE_INIT, WASTE_SPAWN_PROBABILITY, AGENT_START)
 
 
 class CleanupEnv(ParallelEnv):
@@ -107,15 +107,15 @@ class CleanupEnv(ParallelEnv):
         # Find initial points
         self.spawn_points = self._find_points(AGENT_START)
         self.apple_spawn_points = self._find_points(APPLE_SPAWN)
-        self.waste_spawn_points = self._find_points(WASTE_SPAWN)
+        self.waste_init_points = self._find_points(WASTE_INIT)
         self.river_points = self._find_points(RIVER)
         self.stream_points = self._find_points(STREAM) # Stream tiles 'S'
         self.wall_points = self._find_points(WALL)
         
 
         # Waste dynamics related points
-        self.potential_waste_area = len(self.waste_spawn_points) + len(self.river_points)
-        self.waste_points = self.waste_spawn_points + self.river_points # All points where waste can exist
+        self.potential_waste_area = len(self.waste_init_points) + len(self.river_points)
+        self.waste_spawn_points = self.waste_init_points + self.river_points # All points where waste can exist
 
         # Initialize agents
         self._agents: dict[str, CleanupAgent] = {} # Use dict for agent management
@@ -462,7 +462,7 @@ class CleanupEnv(ParallelEnv):
 
     def _reset_map_features(self):
         """Places initial waste, river, and stream tiles."""
-        for r, c in self.waste_spawn_points:
+        for r, c in self.waste_init_points:
              self.world_map[r, c] = WASTE
         for r, c in self.river_points:
              self.world_map[r, c] = RIVER
@@ -793,7 +793,7 @@ class CleanupEnv(ParallelEnv):
 
         if waste_density >= THRESHOLD_DEPLETION:
             self.current_apple_spawn_prob = 0
-            self.current_waste_spawn_prob = 0
+            # self.current_waste_spawn_prob = 0 污染仍然增长
         else:
             self.current_waste_spawn_prob = WASTE_SPAWN_PROBABILITY
             if waste_density <= THRESHOLD_RESTORATION:
@@ -813,20 +813,16 @@ class CleanupEnv(ParallelEnv):
 
         # Try to spawn apples
         for r, c in self.apple_spawn_points:
-            if self.world_map[r, c] == EMPTY and tuple([r, c]) not in agent_pos_list:
+            if (self.world_map[r, c] == APPLE_SPAWN or self.world_map[r, c] == EMPTY) and tuple([r, c]) not in agent_pos_list:
                 if random.random() < self.current_apple_spawn_prob:
                     spawn_updates.append((r, c, APPLE))
 
-        # Try to spawn waste (only one per step)
-        eligible_waste_points = []
-        for r, c in self.waste_points: # waste_points includes original H and R locations
+        # Try to spawn waste 
+        for r, c in self.waste_spawn_points: # waste_spawn_points includes original H and R locations
             if self.world_map[r, c] == EMPTY or self.world_map[r, c] == RIVER: # Can spawn on empty or river tiles
                  if tuple([r, c]) not in agent_pos_list:
-                     eligible_waste_points.append((r, c))
-
-        if eligible_waste_points and random.random() < self.current_waste_spawn_prob:
-             r, c = random.choice(eligible_waste_points)
-             spawn_updates.append((r, c, WASTE))
+                    if random.random() < self.current_waste_spawn_prob:
+                        spawn_updates.append((r, c, WASTE))
 
         return spawn_updates
 
