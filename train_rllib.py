@@ -462,6 +462,19 @@ def main(args):
             num_gpus_per_worker=args.gpus_per_worker,
             num_cpus_for_local_worker = args.cpus_for_driver, # Renamed from driver
         )
+        .evaluation(
+            evaluation_interval=2,  # 每 1 次训练迭代运行一次评估
+            evaluation_duration=1,  # 每次评估运行 1 个 episode
+            evaluation_duration_unit="episodes",
+            evaluation_num_workers=1, # 使用 1 个 worker 进行评估
+            evaluation_config={
+                "render_env": True,  # <--- 启用环境渲染
+                # 可选：如果评估需要特定环境配置，可以在这里覆盖
+                # "env_config": { ... }
+                # 可选：分配给评估 worker 的资源
+                 "explore": False # 通常在评估时不进行探索
+            }
+        )
          # Add evaluation config if needed
          #.evaluation(evaluation_interval=10, evaluation_num_workers=1)
          .debugging(seed=args.seed) # Set seed if provided, None otherwise # Set seed if provided
