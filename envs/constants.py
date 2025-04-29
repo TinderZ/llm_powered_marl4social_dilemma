@@ -11,7 +11,7 @@ CLEANUP_MAP = [
     "@RRRRR    P BBBBB@",
     "@HHHHH       BBBB@",
     "@RRRRR      BBBBB@",
-    "@HHHHHHSSSSSSBBBB@",
+    "@RRRRRRSSSSSSBBBB@",
     "@HHHHHHSSSSSSBBBB@",
     "@RRRRR   P P BBBB@",
     "@HHHHH   P  BBBBB@",
@@ -20,11 +20,11 @@ CLEANUP_MAP = [
     "@RRRRR       BBBB@",
     "@HHHH    P  BBBBB@",
     "@RRRRR       BBBB@",
-    "@HHHHH  P   BBBBB@",
+    "@RRRRR  P   BBBBB@",
     "@RRRRR       BBBB@",
     "@HHHH       BBBBB@",
     "@RRRRR   P   BBBB@",
-    "@HHHHH      BBBBB@",
+    "@HHRRR      BBBBB@",
     "@RRRRR       BBBB@",
     "@HHHH       BBBBB@",
     "@@@@@@@@@@@@@@@@@@",
@@ -120,7 +120,7 @@ CLEAN_BEAM_LENGTH = 4 #
 FIRE_BEAM_WIDTH = 1   # 
 CLEAN_BEAM_WIDTH = 3  
 
-PENALTY_HIT = 50      # Penalty for being hit by a fire beam
+PENALTY_HIT = 10      # Penalty for being hit by a fire beam
 PENALTY_FIRE = 1      # Cost for firing a penalty beam
 CLEAN_REWARD = 0      # Reward/cost for firing a cleaning beam (original was 0)
 APPLE_REWARD = 1      # Reward for collecting an apple
@@ -128,7 +128,7 @@ APPLE_REWARD = 1      # Reward for collecting an apple
 # 概率和阈值 (Probabilities and Thresholds)
 THRESHOLD_DEPLETION = 0.5
 THRESHOLD_RESTORATION = 0.0
-WASTE_SPAWN_PROBABILITY = 0.1
+WASTE_SPAWN_PROBABILITY = 0.03
 APPLE_RESPAWN_PROBABILITY = 0.05
 
 # 地图字符 (Map Characters)

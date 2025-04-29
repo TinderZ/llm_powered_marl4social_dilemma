@@ -1,4 +1,153 @@
-# Python Bytecode and Cache
+# === Byte-compiled / optimized / DLL files ===
 __pycache__/
 *.py[cod]
 *$py.class
+
+# === C extensions ===
+*.so
+
+# === Distribution / packaging ===
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# === PyInstaller ===
+# Usually these files are written by a python script from a template
+# before PyInstaller builds the exe, so as to inject date/other infos into it.
+*.manifest
+*.spec
+
+# === Installer logs ===
+pip-log.txt
+pip-delete-this-directory.txt
+
+# === Unit test / coverage reports ===
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# === Translations ===
+*.mo
+*.pot
+
+# === Django stuff ===
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+media/ # 通常媒体文件是用户上传的，不应入库
+
+# === Flask stuff ===
+instance/
+.webassets-cache
+
+# === Scrapy stuff ===
+.scrapy
+
+# === Sphinx documentation ===
+docs/_build/
+
+# === PyBuilder ===
+target/
+
+# === IPython Notebook ===
+.ipynb_checkpoints
+
+# === Virtual environments ===
+venv/
+env/
+.venv/
+.env/
+ENV/
+env.bak/
+venv.bak/
+
+# === Spyder project settings ===
+.spyderproject
+.spyproject
+
+# === Rope project settings ===
+.ropeproject
+
+# === mkdocs documentation ===
+/site
+
+# === mypy / pyre ===
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+
+# === Other ===
+*.pid
+*.seed
+*.pid.lock
+
+# === IDE / Editor ===
+# PyCharm
+.idea/
+*.iml
+
+# VSCode
+.vscode/ # (除非有共享配置需求)
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Eclipse
+.project
+.pydevproject
+.settings/
+
+# === OS generated files ===
+# Mac
+.DS_Store
+.AppleDouble
+.LSOverride
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# === Secrets - !!! IMPORTANT !!! ===
+# Never commit secrets, use environment variables or secret management tools
+*.env
+*.env.* # e.g. .env.local, .env.development
+secrets.yaml
+config.prod.json # Example sensitive config file
+*.pem
+*.key
+
+# === Large Data Files (Consider Git LFS or other storage) ===
+# data/large_dataset.csv
+# models/trained_model.pkl

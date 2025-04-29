@@ -806,7 +806,9 @@ class CleanupEnv(ParallelEnv):
 
         if waste_density >= THRESHOLD_DEPLETION:
             self.current_apple_spawn_prob = 0
-            # self.current_waste_spawn_prob = 0 污染仍然增长
+            if waste_density >= 0.55:
+                self.current_waste_spawn_prob = 0
+            
         else:
             self.current_waste_spawn_prob = WASTE_SPAWN_PROBABILITY
             if waste_density <= THRESHOLD_RESTORATION:
