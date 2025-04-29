@@ -744,11 +744,11 @@ class CleanupEnv(ParallelEnv):
 
         if beam_width == 3:
             if orientation == "UP" or orientation == "DOWN":
-                init_pos_all = {start_pos, start_pos + [0, 1], start_pos + [0, -1]}
+                init_pos_all = [tuple(start_pos), tuple(start_pos + [0, 1]), tuple(start_pos + [0, -1])]
             elif orientation == "RIGHT" or orientation == "LEFT":
-                init_pos_all = {start_pos, start_pos + [1, 0], start_pos + [-1, 0]}
+                init_pos_all = [tuple(start_pos), tuple(start_pos + [1, 0]), tuple(start_pos + [-1, 0])]
         elif beam_width == 1:
-            init_pos_all = {start_pos}
+            init_pos_all = [tuple(start_pos)]
 
         agent_positions = {tuple(agent.get_pos()): agent_id for agent_id, agent in self._agents.items()}
 
