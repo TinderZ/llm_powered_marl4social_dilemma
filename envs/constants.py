@@ -115,21 +115,28 @@ DEFAULT_COLOURS = {
 # Cleanup 环境特定参数 (Cleanup Environment Specific Parameters)
 CLEANUP_VIEW_SIZE = 7  # Agent's view range (original was 7x7)
 
-FIRE_BEAM_LENGTH = 4
-CLEAN_BEAM_LENGTH = 4 # 
+FIRE_BEAM_LENGTH = 3
+CLEAN_BEAM_LENGTH = 5 # 
 FIRE_BEAM_WIDTH = 1   # 
 CLEAN_BEAM_WIDTH = 3  
 
-PENALTY_HIT = 10      # Penalty for being hit by a fire beam
-PENALTY_FIRE = 1      # Cost for firing a penalty beam
+PENALTY_HIT = 0      # Penalty for being hit by a fire beam
+PENALTY_FIRE = 0      # Cost for firing a penalty beam
 CLEAN_REWARD = 0      # Reward/cost for firing a cleaning beam (original was 0)
 APPLE_REWARD = 1      # Reward for collecting an apple
 
 # 概率和阈值 (Probabilities and Thresholds)
-THRESHOLD_DEPLETION = 0.5
+THRESHOLD_DEPLETION = 0.4
 THRESHOLD_RESTORATION = 0.0
-WASTE_SPAWN_PROBABILITY = 0.03
-APPLE_RESPAWN_PROBABILITY = 0.05
+WASTE_SPAWN_PROBABILITY = 0.02
+APPLE_RESPAWN_PROBABILITY = 0.06
+
+# --- Constants for Immobilization ---
+IMMOBILIZE_DURATION_HIT = 50  # Steps agent is immobilized after being hit
+IMMOBILIZE_DURATION_FIRE = 4   # Steps agent is immobilized after firing
+STAY_ACTION_INDEX = 4         # Index corresponding to the "STAY" action in ACTION_MEANING
+
+
 
 # 地图字符 (Map Characters)
 WALL = b'@'

@@ -14,8 +14,8 @@ from pettingzoo.utils import parallel_to_aec, wrappers
 from envs.cleanup_agent import CleanupAgent
 from envs.llm_module import LLMModule
 
+from envs.constants import IMMOBILIZE_DURATION_HIT, IMMOBILIZE_DURATION_FIRE, STAY_ACTION_INDEX
 from envs.constants import (ACTION_MEANING, APPLE, APPLE_REWARD, APPLE_RESPAWN_PROBABILITY,
-
                      APPLE_SPAWN, AGENT_CHARS, CLEANUP_MAP, CLEANUP_VIEW_SIZE, CLEAN_BEAM_LENGTH,
                      CLEAN_BEAM_WIDTH, CLEAN_REWARD, CLEANABLE_TILES, CLEAN_BLOCKING_CELLS,
                      CLEANED_TILE_RESULT, CLEAN_BEAM, DEFAULT_COLOURS, EMPTY, FIRE_BEAM_LENGTH,
@@ -221,10 +221,22 @@ class CleanupEnv(ParallelEnv):
         self.num_cycles += 1
         self.beam_pos = [] # Clear beams from previous step
 
-        # <--- 新增: 记录步骤开始时的活动智能体 --->
+        # <--- 记录步骤开始时的活动智能体 --->
         # 目的是确保后续的奖励、终止/截断状态和观测都基于这个列表计算
         agents_at_step_start = self.agents[:]
         # print(f"Active agents: {agents_at_step_start}")
+
+        # --- Handle Immobilization and Override Actions ---
+        original_actions = actions.copy() # Keep original for reference if needed
+        for agent_id in agents_at_step_start:
+            if agent_id in self._agents:
+                agent = self._agents[agent_id]
+                if agent.is_immobilized():
+                    # Override action to STAY
+                    actions[agent_id] = STAY_ACTION_INDEX
+                    # Decrement counter
+                    agent.decrement_immobilization()
+
 
         # 1. Process Actions (Movement, Turns, Special Actions)
         # <--- 修改: 使用 agents_at_step_start 初始化奖励字典 --->
@@ -236,7 +248,7 @@ class CleanupEnv(ParallelEnv):
 
         # Decode actions and handle turns immediately
         for agent_id, action_code in actions.items():
-            # <--- 修改: 检查 agent_id 是否在 agents_at_step_start 中 --->
+            # <--- 检查 agent_id 是否在 agents_at_step_start 中 --->
             # 忽略那些在该步骤开始时就已经不活动的智能体的动作
             if agent_id not in self._agents or agent_id not in agents_at_step_start: continue # Skip if agent is already done
 
@@ -262,10 +274,8 @@ class CleanupEnv(ParallelEnv):
              self._agents[agent_id].set_pos(final_pos)
 
         # 3. Handle Consumption (Apples)
-        # <--- 修改: 循环基于 agents_at_step_start --->
         for agent_id in agents_at_step_start:
             #if agent_id not in self._agents: continue # 确保智能体仍然存在
-        
             agent = self._agents[agent_id]
             pos = agent.get_pos()
             tile = self.world_map[pos[0], pos[1]]
@@ -273,15 +283,16 @@ class CleanupEnv(ParallelEnv):
                 agent.add_reward(APPLE_REWARD)
                 self._update_map_tile(pos[0], pos[1], EMPTY)
 
+
         # 4. Handle Special Actions (Firing/Cleaning Beams) in random order
         beam_updates = [] # Store tile changes from beams
-
         for agent_id in agents_at_step_start: #shuffled_agent_ids:  无随机性
             agent = self._agents.get(agent_id)
             if not agent: continue # Agent might be done
             action_str = agent_action_map.get(agent_id)
-
+            
             if action_str == "FIRE":
+                agent.immobilize(IMMOBILIZE_DURATION_FIRE)
                 agent.add_reward(-PENALTY_FIRE) # Cost for firing
                 fire_updates = self._fire_beam(
                     agent.get_pos(), agent.get_orientation(), FIRE_BEAM_LENGTH,
@@ -771,7 +782,8 @@ class CleanupEnv(ParallelEnv):
                 if tuple(current_pos) in agent_positions:  
                     hit_agent_id = agent_positions[tuple(current_pos)]
                     if beam_char == PENALTY_BEAM:  # 说明是fire 不是clean
-                        self._agents[hit_agent_id].add_reward(-PENALTY_HIT)
+                        self._agents[hit_agent_id].add_reward(-PENALTY_HIT) #reward=0
+                        self._agents[hit_agent_id].immobilize(IMMOBILIZE_DURATION_HIT)
                     # Beam stops when hitting an agent
                     break
 
@@ -806,7 +818,7 @@ class CleanupEnv(ParallelEnv):
 
         if waste_density >= THRESHOLD_DEPLETION:
             self.current_apple_spawn_prob = 0
-            if waste_density >= 0.55:
+            if waste_density >= 0.6:
                 self.current_waste_spawn_prob = 0
             
         else:

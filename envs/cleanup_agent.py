@@ -38,6 +38,8 @@ class CleanupAgent:
         self.terminated = False
         self.truncated = False
 
+        self.immobilized_steps_remaining = 0
+
 
     def get_pos(self) -> np.ndarray:
         """Returns the current position."""
@@ -90,6 +92,21 @@ class CleanupAgent:
     def set_truncated(self, truncated: bool = True):
         """Sets the truncated status."""
         self.truncated = truncated
+    
+    def immobilize(self, duration: int):
+        """Sets the immobilization duration for the agent."""
+        self.immobilized_steps_remaining = duration
+
+    def decrement_immobilization(self):
+        """Decrements the remaining immobilization steps."""
+        if self.immobilized_steps_remaining > 0:
+            self.immobilized_steps_remaining -= 1
+
+    def is_immobilized(self) -> bool:
+        """Checks if the agent is currently immobilized."""
+        return self.immobilized_steps_remaining > 0
+
+
 
     def reset(self, start_pos: np.ndarray, start_orientation: str):
         """Resets the agent's state."""
@@ -99,3 +116,4 @@ class CleanupAgent:
         self.cumulative_reward = 0.0
         self.terminated = False
         self.truncated = False
+        self.immobilized_steps_remaining = 0

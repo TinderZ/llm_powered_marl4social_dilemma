@@ -223,7 +223,7 @@ class PlottingCallback(Callback):
 # It's common to register environments here before Tune runs.
 def env_creator(env_config):
     env_name = env_config.get("env_name", "cleanup")
-    num_agents = env_config.get("num_agents", 2)
+    num_agents = env_config.get("num_agents", 5)
     # ... other env args ...
 
     if env_name == "cleanup":
