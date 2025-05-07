@@ -24,7 +24,7 @@ from envs.constants import (ACTION_MEANING, APPLE, APPLE_REWARD, APPLE_RESPAWN_P
                      RIVER, ROTATION_MAP, SPECIAL_ACTIONS, STREAM, THRESHOLD_DEPLETION,
                      THRESHOLD_RESTORATION, TURN_ACTIONS, VIEW_PADDING, WALL, WASTE,
                      WASTE_INIT, WASTE_SPAWN_PROBABILITY, AGENT_START)
-
+from envs.constants import (CLEAN_BEAM_LENGTH_VALID)
 
 class CleanupEnv(ParallelEnv):
     """
@@ -765,7 +765,7 @@ class CleanupEnv(ParallelEnv):
 
         for pos in init_pos_all:
             current_pos = pos
-            affect_num = 2
+            affect_num = CLEAN_BEAM_LENGTH_VALID
             for _ in range(length):
                 # Move beam forward
                 current_pos += firing_direction
@@ -818,7 +818,7 @@ class CleanupEnv(ParallelEnv):
 
         if waste_density >= THRESHOLD_DEPLETION:
             self.current_apple_spawn_prob = 0
-            if waste_density >= 0.6:
+            if waste_density >= 0.55:
                 self.current_waste_spawn_prob = 0
             
         else:
@@ -828,8 +828,7 @@ class CleanupEnv(ParallelEnv):
             else:
                 # Linear interpolation between restoration and depletion thresholds 
                 # 恢复阈值和耗尽阈值之间的线性插值
-                prob = (1.0 - (waste_density - THRESHOLD_RESTORATION) /
-                        (THRESHOLD_DEPLETION - THRESHOLD_RESTORATION)) * APPLE_RESPAWN_PROBABILITY
+                prob = (1.0 - (waste_density - THRESHOLD_RESTORATION) / (THRESHOLD_DEPLETION - THRESHOLD_RESTORATION)) * APPLE_RESPAWN_PROBABILITY
                 self.current_apple_spawn_prob = max(0, prob) # Ensure non-negative
 
 

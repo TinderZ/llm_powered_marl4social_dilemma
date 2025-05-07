@@ -19,6 +19,7 @@ import numpy as np
 from collections import defaultdict
 import time # Optional for smoother plotting in some backends
 from ray.tune.callback import Callback
+from ray.tune.experiment.trial import Trial  # Import Trial for type hinting
 # import threading # To handle plotting in a separate thread potentially
 import matplotlib
 matplotlib.use('Agg') # Use Agg backend for non-interactive plotting
@@ -199,7 +200,6 @@ class PlottingCallback(Callback):
              print(f"PlottingCallback: Failed to save plot to {save_path}: {e}")
     # plt.pause(0.01) # Small pause might be needed for some backends/interactive use
 
-            # plt.pause(0.01) # Small pause might be needed for some backends/interactive use
 
     # Optional: Close plot when trial ends or experiment finishes
     # def on_trial_complete(self, iteration: int, trials: list, trial: "Trial", **info):
@@ -431,7 +431,8 @@ def main(args):
                     "fcnet_hiddens": [32, 32], # Example default
                     "lstm_hidden_size": args.lstm_hidden_size,
                 },
-                 "use_lstm": False, # Let RLlib handle if model is nn.Module? See BaselineModel notes.
+                 "use_lstm": False#True, # Let RLlib handle if model is nn.Module? See BaselineModel notes.
+                #"lstm_use_prev_action": True
             },
         )
         # .multi_agent(
@@ -441,43 +442,70 @@ def main(args):
         #      # policy_mapping_fn=(lambda agent_id, episode, worker, **kwargs: f"agent_{agent_id.split('_')[-1]}"),
         #     policy_mapping_fn=(lambda agent_id, *args, **kwargs: agent_id), # Simpler mapping if policy keys match agent ids
         # )
+
+        # .multi_agent(
+        #     policies={
+        #         f"agent_{i}": PolicySpec(
+        #             policy_class=None,  # 让 RLlib 使用默认的 PPO TorchPolicy
+        #             observation_space=obs_space, # 显式提供观察空间
+        #             action_space=act_space,      # 显式提供动作空间
+        #             # config 可以省略，让其继承顶层 config 的 model 设置
+        #             # 或者如果需要为特定策略覆盖配置，可以在这里添加:
+        #             # config={"model": {... specific overrides ...}}
+        #         )
+        #         for i in range(args.num_agents)
+        #     },
+        #     # 保持策略映射不变，将 agent_id 映射到对应的 policy_id
+        #     policy_mapping_fn=(lambda agent_id, *args, **kwargs: agent_id),
+        # )
+
         .multi_agent(
             policies={
-                f"agent_{i}": PolicySpec(
-                    policy_class=None,  # 让 RLlib 使用默认的 PPO TorchPolicy
-                    observation_space=obs_space, # 显式提供观察空间
-                    action_space=act_space,      # 显式提供动作空间
-                    # config 可以省略，让其继承顶层 config 的 model 设置
-                    # 或者如果需要为特定策略覆盖配置，可以在这里添加:
-                    # config={"model": {... specific overrides ...}}
+                "policy_A": PolicySpec(
+                    policy_class=None,  # Let RLlib use default PPO TorchPolicy
+                    observation_space=obs_space, # Provide the observation space
+                    action_space=act_space,      # Provide the action space
+                    # Optional: if policy_A and policy_B have different model configs
+                    # config={"model": { ... overrides for policy_A ... }}
+                ),
+                "policy_B": PolicySpec(
+                    policy_class=None,  # Let RLlib use default PPO TorchPolicy
+                    observation_space=obs_space, # Provide the observation space
+                    action_space=act_space,      # Provide the action space
+                    # Optional: if policy_A and policy_B have different model configs
+                    # config={"model": { ... overrides for policy_B ... }}
                 )
-                for i in range(args.num_agents)
             },
-            # 保持策略映射不变，将 agent_id 映射到对应的 policy_id
-            policy_mapping_fn=(lambda agent_id, *args, **kwargs: agent_id),
+            policy_mapping_fn=(
+                lambda agent_id, episode, worker, **kwargs:
+                "policy_A" if int(agent_id.split('_')[-1]) < 2 else "policy_B"
+            ),
+            # Optional: If you want to ensure certain agents are never mapped to a policy
+            # policies_to_train=["policy_A", "policy_B"]
         )
+        
         .resources(
             num_gpus=args.gpus_for_driver,
             num_cpus_per_worker=args.cpus_per_worker,
             num_gpus_per_worker=args.gpus_per_worker,
             num_cpus_for_local_worker = args.cpus_for_driver, # Renamed from driver
         )
-        .evaluation(
-            evaluation_interval=2,  # 每 1 次训练迭代运行一次评估
-            evaluation_duration=1,  # 每次评估运行 1 个 episode
-            evaluation_duration_unit="episodes",
-            evaluation_num_workers=1, # 使用 1 个 worker 进行评估
-            evaluation_config={
-                "render_env": True,  # <--- 启用环境渲染
-                # 可选：如果评估需要特定环境配置，可以在这里覆盖
-                # "env_config": { ... }
-                # 可选：分配给评估 worker 的资源
-                 "explore": False # 通常在评估时不进行探索
-            }
-        )
-         # Add evaluation config if needed
-         #.evaluation(evaluation_interval=10, evaluation_num_workers=1)
-         .debugging(seed=args.seed) # Set seed if provided, None otherwise # Set seed if provided
+        # .evaluation(
+        #     evaluation_interval=2,  # 每 1 次训练迭代运行一次评估
+        #     evaluation_duration=1,  # 每次评估运行 1 个 episode
+        #     evaluation_duration_unit="episodes",
+        #     evaluation_num_workers=1, # 使用 1 个 worker 进行评估
+        #     evaluation_config={
+        #         "render_env": True,  # <--- 启用环境渲染
+        #         # 可选：如果评估需要特定环境配置，可以在这里覆盖
+        #         # "env_config": { ... }
+        #         # 可选：分配给评估 worker 的资源
+        #          "explore": False # 通常在评估时不进行探索
+        #     }
+        # )
+        # Add evaluation config if needed
+        #.evaluation(evaluation_interval=10, evaluation_num_workers=1)
+        .debugging(seed=args.seed) # Set seed if provided, None otherwise # Set seed if provided
     )
 
 
@@ -563,7 +591,7 @@ def main(args):
     print("Training finished.")
     best_result = results.get_best_result(metric="episode_reward_mean", mode="max")
 
-    # --- 修改开始: 增加检查 ---
+    # --- 增加检查 ---
     if best_result:
         print("Best trial config: {}".format(best_result.config))
         if best_result.metrics and "episode_reward_mean" in best_result.metrics:
@@ -573,7 +601,7 @@ def main(args):
             print(f"All metrics for best trial: {best_result.metrics}")
     else:
         print("No best trial found (likely due to errors or no completed trials).")
-    # --- 修改结束 ---
+    
 
     ray.shutdown()
 
